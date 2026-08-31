@@ -1535,15 +1535,28 @@ async function isAdmin(email) {
   return snap.exists();
 }
 
-// Connexion par code PIN.
-// Le PIN sert d'identifiant de document dans /pins : il faut donc connaître
-// le code exact pour obtenir la moindre information. La collection n'est pas
-// énumérable (règle "list" réservée aux administrateurs).
-async function loginPin(pin) {
-  const ref = await fsGet(COLLECTIONS.PINS, String(pin));
+// Caserne rattachée à un compte admin (chantier multi-tenant, point 3).
+// Pas de saisie supplémentaire pour l'admin : son compte Google suffit,
+// la caserne est lue sur son document admins/{email}. À défaut de champ
+// organisationId (compte créé avant ce chantier), on retombe sur la
+// caserne unique actuelle.
+async function obtenirOrganisationAdmin(email) {
+  if (!email) return null;
+  const snap = await getDoc(doc(db, COLLECTIONS.ADMINS, String(email).trim().toLowerCase()));
+  if (!snap.exists()) return null;
+  return snap.data()?.organisationId || ORGANISATION_ACTUELLE;
+}
+
+// Connexion par code PIN, scopée à une caserne (chantier multi-tenant,
+// point 3 — code caserne saisi explicitement). La clé du document dans
+// /pins combine caserne + PIN ("<organisationId>_<pin>") : deux casernes
+// peuvent donc réutiliser le même code à 4 chiffres. La collection n'est
+// pas énumérable (règle "list" réservée aux administrateurs).
+async function loginPin(organisationId, pin) {
+  const ref = await fsGet(COLLECTIONS.PINS, `${organisationId}_${pin}`);
   if (!ref || !ref.equipeId) {
     // Repli sur l'ancien stockage, le temps que la migration soit faite
-    const legacy = await fsQuery(COLLECTIONS.EQUIPES, where("pin", "==", pin));
+    const legacy = await fsQuery(COLLECTIONS.EQUIPES, where("pin", "==", pin), where("organisationId", "==", organisationId));
     return legacy.length ? legacy[0] : null;
   }
   const equipe = await fsGet(COLLECTIONS.EQUIPES, ref.equipeId);
@@ -1568,6 +1581,16 @@ const obtenirOrganisation = (slug) => fsGet(COLLECTIONS.ORGANISATIONS, slug);
 
 // Réservé aux comptes admin authentifiés — voir les règles Firestore.
 const listerOrganisations = () => fsGetAll(COLLECTIONS.ORGANISATIONS);
+
+// Identification d'une caserne par code saisi à la connexion (chantier
+// multi-tenant, point 3). Normalise la casse/espaces et exige une
+// organisation active — un code désactivé se comporte comme inconnu.
+async function identifierOrganisation(code) {
+  const slug = String(code || "").trim().toLowerCase();
+  if (!slug) return null;
+  const org = await obtenirOrganisation(slug);
+  return (org && org.actif) ? org : null;
+}
 
 const _networkListeners = [];
 let _isOnline = navigator.onLine;
@@ -1822,25 +1845,29 @@ const MODE_PAIEMENT = { ESPECES:"especes", CHEQUE:"cheque", CARTE:"carte" };
 async function creerEquipe({ nom, membres=[], pin }) {
   if (!nom) throw new Error("Nom d'équipe obligatoire");
   if (!pin || !/^\d{4}$/.test(pin)) throw new Error("PIN doit être 4 chiffres");
-  // L'unicité est structurelle : le PIN est l'identifiant du document
-  const pris = await fsGet(COLLECTIONS.PINS, pin);
+  // L'unicité est structurelle : "<organisationId>_<pin>" est l'identifiant
+  // du document, donc le PIN n'a besoin d'être unique que dans sa caserne
+  // (chantier multi-tenant, point 3).
+  const cleId = `${ORGANISATION_ACTUELLE}_${pin}`;
+  const pris = await fsGet(COLLECTIONS.PINS, cleId);
   if (pris) throw new Error("Ce PIN est déjà utilisé");
   const ref = await fsAdd(COLLECTIONS.EQUIPES, { organisationId: ORGANISATION_ACTUELLE, nom, membres, actif:true });
-  await fsSet(COLLECTIONS.PINS, pin, { equipeId: ref.id, nom });
+  await fsSet(COLLECTIONS.PINS, cleId, { equipeId: ref.id, nom, organisationId: ORGANISATION_ACTUELLE, pin });
   return ref;
 }
 async function mettreAJourEquipe(equipeId, data) {
   const { pin, ...champs } = data;
   if (pin !== undefined && pin !== null && pin !== '') {
     if (!/^\d{4}$/.test(pin)) throw new Error("PIN doit être 4 chiffres");
-    const pris = await fsGet(COLLECTIONS.PINS, pin);
+    const cleId = `${ORGANISATION_ACTUELLE}_${pin}`;
+    const pris = await fsGet(COLLECTIONS.PINS, cleId);
     if (pris && pris.equipeId !== equipeId) throw new Error("Ce PIN est déjà utilisé");
     // Retirer l'ancien code de cette équipe
     const tous = await fsGetAll(COLLECTIONS.PINS);
     for (const p of tous) {
-      if (p.equipeId === equipeId && p.id !== pin) await fsDelete(COLLECTIONS.PINS, p.id);
+      if (p.equipeId === equipeId && p.id !== cleId) await fsDelete(COLLECTIONS.PINS, p.id);
     }
-    await fsSet(COLLECTIONS.PINS, pin, { equipeId, nom: champs.nom || pris?.nom || '' });
+    await fsSet(COLLECTIONS.PINS, cleId, { equipeId, nom: champs.nom || pris?.nom || '', organisationId: ORGANISATION_ACTUELLE, pin });
   }
   if (Object.keys(champs).length) await fsUpdate(COLLECTIONS.EQUIPES, equipeId, champs);
 }
@@ -1854,7 +1881,9 @@ async function supprimerEquipe(id) {
 async function lirePins() {
   const tous = await fsGetAll(COLLECTIONS.PINS);
   const map = {};
-  for (const p of tous) map[p.equipeId] = p.id;
+  // p.pin porte le code à 4 chiffres nu ; p.id (la clé "<org>_<pin>") sert
+  // de repli pour d'éventuels documents antérieurs à ce champ.
+  for (const p of tous) map[p.equipeId] = p.pin || p.id;
   return map;
 }
 
@@ -1864,9 +1893,11 @@ async function migrerPins() {
   let deplaces = 0, conflits = 0;
   for (const e of equipes) {
     if (!e.pin) continue;
-    const pris = await fsGet(COLLECTIONS.PINS, String(e.pin));
+    const orgId = e.organisationId || ORGANISATION_ACTUELLE;
+    const cleId = `${orgId}_${e.pin}`;
+    const pris = await fsGet(COLLECTIONS.PINS, cleId);
     if (pris && pris.equipeId !== e.id) { conflits++; continue; }
-    await fsSet(COLLECTIONS.PINS, String(e.pin), { equipeId: e.id, nom: e.nom || '' });
+    await fsSet(COLLECTIONS.PINS, cleId, { equipeId: e.id, nom: e.nom || '', organisationId: orgId, pin: e.pin });
     await fsUpdate(COLLECTIONS.EQUIPES, e.id, { pin: null });
     deplaces++;
   }
@@ -3607,6 +3638,7 @@ window.APP = {
   user:      null,   // objet Firebase Auth (admin) ou objet équipe (equipier)
   equipeId:  null,
   equipeNom: null,
+  organisationId: null, // caserne identifiée à la connexion (chantier multi-tenant, point 3)
   // Désabonnements Firestore temps réel
   unsubs: []
 };
@@ -3758,6 +3790,7 @@ onAuth(async (user) => {
         APP.user = eq;
         APP.equipeId  = eq.id;
         APP.equipeNom = eq.nom;
+        APP.organisationId = eq.organisationId || null;
         APP.membre    = sessionStorage.getItem("membre") || null;
         naviguer("#terrain");
         return;
@@ -3773,6 +3806,7 @@ onAuth(async (user) => {
     if (admin) {
       APP.role = "admin";
       APP.user = user;
+      APP.organisationId = await obtenirOrganisationAdmin(user.email);
       demarrerPlanificateurResume();
       const hash = window.location.hash;
       naviguer(ROUTES[hash] && hash !== "#login" ? hash : "#dashboard");
@@ -3822,14 +3856,24 @@ function renderLogin() {
 
         <!-- Onglet Amicaliste -->
         <div id="tab-equipier" class="tab-panel hidden">
-          <p class="login-hint">Saisis le code PIN de ton équipe (4 chiffres).</p>
-          <div class="pin-display" id="pin-display">____</div>
-          <div class="pin-pad">
-            ${[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map(k => `
-              <button class="pin-key ${k === '' ? 'pin-key--empty' : ''}" data-key="${k}">${k}</button>
-            `).join('')}
+          <div id="etape-caserne">
+            <p class="login-hint">Code de ta caserne.</p>
+            <input id="input-code-caserne" class="input" type="text" placeholder="Ex : PACY" maxlength="20" autocapitalize="characters" autocomplete="off">
+            <button id="btn-valider-caserne" class="btn btn--primary btn--full" style="margin-top:var(--sp-3);">Valider</button>
+            <div id="caserne-error" class="error-msg hidden">Code caserne inconnu</div>
           </div>
-          <div id="pin-error" class="error-msg hidden">Code PIN incorrect</div>
+          <div id="etape-pin" class="hidden">
+            <p class="login-hint" id="pin-caserne-nom"></p>
+            <p class="login-hint">Saisis le code PIN de ton équipe (4 chiffres).</p>
+            <div class="pin-display" id="pin-display">____</div>
+            <div class="pin-pad">
+              ${[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map(k => `
+                <button class="pin-key ${k === '' ? 'pin-key--empty' : ''}" data-key="${k}">${k}</button>
+              `).join('')}
+            </div>
+            <div id="pin-error" class="error-msg hidden">Code PIN incorrect</div>
+            <button id="btn-changer-caserne" class="btn btn--ghost btn--full" style="margin-top:var(--sp-3);">← Changer de caserne</button>
+          </div>
         </div>
       </div>
     </div>
@@ -3861,6 +3905,7 @@ function bindLoginEvents() {
           if (admin) {
             APP.role = "admin";
             APP.user = result.user;
+            APP.organisationId = await obtenirOrganisationAdmin(result.user.email);
             naviguer("#dashboard");
           } else {
             toast("Accès refusé : " + result.user.email + " n\'est pas administrateur.", "error");
@@ -3877,6 +3922,52 @@ function bindLoginEvents() {
     });
   }
 
+  // Code caserne (chantier multi-tenant, point 3)
+  let orgIdentifiee = null;
+
+  const etapeCaserne = document.getElementById("etape-caserne");
+  const etapePin     = document.getElementById("etape-pin");
+
+  function afficherEtapePin(org) {
+    orgIdentifiee = org;
+    etapeCaserne && etapeCaserne.classList.add("hidden");
+    etapePin && etapePin.classList.remove("hidden");
+    const nomEl = document.getElementById("pin-caserne-nom");
+    if (nomEl) nomEl.textContent = org.nom || org.slug;
+  }
+  function afficherEtapeCaserne() {
+    orgIdentifiee = null;
+    pinSaisi = "";
+    etapePin && etapePin.classList.add("hidden");
+    etapeCaserne && etapeCaserne.classList.remove("hidden");
+    const input = document.getElementById("input-code-caserne");
+    if (input) input.value = "";
+  }
+
+  const btnValiderCaserne = document.getElementById("btn-valider-caserne");
+  const inputCodeCaserne  = document.getElementById("input-code-caserne");
+  async function validerCodeCaserne() {
+    const errEl = document.getElementById("caserne-error");
+    const code = inputCodeCaserne?.value || "";
+    errEl && errEl.classList.add("hidden");
+    setLoading(btnValiderCaserne, true);
+    try {
+      const org = await identifierOrganisation(code);
+      if (org) {
+        afficherEtapePin(org);
+      } else {
+        errEl && errEl.classList.remove("hidden");
+      }
+    } catch (e) {
+      toast("Erreur : " + e.message, "error");
+    } finally {
+      setLoading(btnValiderCaserne, false);
+    }
+  }
+  btnValiderCaserne?.addEventListener("click", validerCodeCaserne);
+  inputCodeCaserne?.addEventListener("keydown", (e) => { if (e.key === "Enter") validerCodeCaserne(); });
+  document.getElementById("btn-changer-caserne")?.addEventListener("click", afficherEtapeCaserne);
+
   // PIN
   let pinSaisi = "";
   function updatePinDisplay() {
@@ -3887,6 +3978,7 @@ function bindLoginEvents() {
 
   $$(".pin-key").forEach(btn => {
     btn.addEventListener("click", async () => {
+      if (!orgIdentifiee) return;
       const key = btn.dataset.key;
       if (key === "⌫") {
         pinSaisi = pinSaisi.slice(0, -1);
@@ -3901,12 +3993,13 @@ function bindLoginEvents() {
       if (pinSaisi.length === 4) {
         const errEl = document.getElementById("pin-error");
         try {
-          const equipe = await loginPin(pinSaisi);
+          const equipe = await loginPin(orgIdentifiee.slug, pinSaisi);
           if (equipe) {
             APP.role = "equipier";
             APP.user = equipe;
             APP.equipeId  = equipe.id;
             APP.equipeNom = equipe.nom;
+            APP.organisationId = equipe.organisationId || orgIdentifiee.slug;
             sessionStorage.setItem("equipe", JSON.stringify(equipe));
             // Si l'équipe a plusieurs membres, demander qui se connecte
             const membres = (equipe.membres || []).filter(Boolean);
@@ -4064,7 +4157,7 @@ function bindLogout() {
     if (APP.role === "admin") await logoutGoogle();
     sessionStorage.removeItem("equipe");
     sessionStorage.removeItem("membre");
-    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null;
+    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.organisationId = null;
     try { await assurerSession(); } catch(e) {}   // garder une session pour l'accès PIN
     naviguer("#login");
   });
@@ -6354,7 +6447,7 @@ async function renderTerrain() {
     stopUnsubs();
     sessionStorage.removeItem("equipe");
     sessionStorage.removeItem("membre");
-    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null;
+    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.organisationId = null;
     APP._rueActive = null;
     naviguer("#login");
   });

@@ -9,25 +9,29 @@ export const MODE_PAIEMENT = { ESPECES:"especes", CHEQUE:"cheque", CARTE:"carte"
 export async function creerEquipe({ nom, membres=[], pin }) {
   if (!nom) throw new Error("Nom d'équipe obligatoire");
   if (!pin || !/^\d{4}$/.test(pin)) throw new Error("PIN doit être 4 chiffres");
-  // L'unicité est structurelle : le PIN est l'identifiant du document
-  const pris = await fsGet(COLLECTIONS.PINS, pin);
+  // L'unicité est structurelle : "<organisationId>_<pin>" est l'identifiant
+  // du document, donc le PIN n'a besoin d'être unique que dans sa caserne
+  // (chantier multi-tenant, point 3).
+  const cleId = `${ORGANISATION_ACTUELLE}_${pin}`;
+  const pris = await fsGet(COLLECTIONS.PINS, cleId);
   if (pris) throw new Error("Ce PIN est déjà utilisé");
   const ref = await fsAdd(COLLECTIONS.EQUIPES, { organisationId: ORGANISATION_ACTUELLE, nom, membres, actif:true });
-  await fsSet(COLLECTIONS.PINS, pin, { equipeId: ref.id, nom });
+  await fsSet(COLLECTIONS.PINS, cleId, { equipeId: ref.id, nom, organisationId: ORGANISATION_ACTUELLE, pin });
   return ref;
 }
 export async function mettreAJourEquipe(equipeId, data) {
   const { pin, ...champs } = data;
   if (pin !== undefined && pin !== null && pin !== '') {
     if (!/^\d{4}$/.test(pin)) throw new Error("PIN doit être 4 chiffres");
-    const pris = await fsGet(COLLECTIONS.PINS, pin);
+    const cleId = `${ORGANISATION_ACTUELLE}_${pin}`;
+    const pris = await fsGet(COLLECTIONS.PINS, cleId);
     if (pris && pris.equipeId !== equipeId) throw new Error("Ce PIN est déjà utilisé");
     // Retirer l'ancien code de cette équipe
     const tous = await fsGetAll(COLLECTIONS.PINS);
     for (const p of tous) {
-      if (p.equipeId === equipeId && p.id !== pin) await fsDelete(COLLECTIONS.PINS, p.id);
+      if (p.equipeId === equipeId && p.id !== cleId) await fsDelete(COLLECTIONS.PINS, p.id);
     }
-    await fsSet(COLLECTIONS.PINS, pin, { equipeId, nom: champs.nom || pris?.nom || '' });
+    await fsSet(COLLECTIONS.PINS, cleId, { equipeId, nom: champs.nom || pris?.nom || '', organisationId: ORGANISATION_ACTUELLE, pin });
   }
   if (Object.keys(champs).length) await fsUpdate(COLLECTIONS.EQUIPES, equipeId, champs);
 }
@@ -41,7 +45,9 @@ export async function supprimerEquipe(id) {
 export async function lirePins() {
   const tous = await fsGetAll(COLLECTIONS.PINS);
   const map = {};
-  for (const p of tous) map[p.equipeId] = p.id;
+  // p.pin porte le code à 4 chiffres nu ; p.id (la clé "<org>_<pin>") sert
+  // de repli pour d'éventuels documents antérieurs à ce champ.
+  for (const p of tous) map[p.equipeId] = p.pin || p.id;
   return map;
 }
 
@@ -51,9 +57,11 @@ export async function migrerPins() {
   let deplaces = 0, conflits = 0;
   for (const e of equipes) {
     if (!e.pin) continue;
-    const pris = await fsGet(COLLECTIONS.PINS, String(e.pin));
+    const orgId = e.organisationId || ORGANISATION_ACTUELLE;
+    const cleId = `${orgId}_${e.pin}`;
+    const pris = await fsGet(COLLECTIONS.PINS, cleId);
     if (pris && pris.equipeId !== e.id) { conflits++; continue; }
-    await fsSet(COLLECTIONS.PINS, String(e.pin), { equipeId: e.id, nom: e.nom || '' });
+    await fsSet(COLLECTIONS.PINS, cleId, { equipeId: e.id, nom: e.nom || '', organisationId: orgId, pin: e.pin });
     await fsUpdate(COLLECTIONS.EQUIPES, e.id, { pin: null });
     deplaces++;
   }
