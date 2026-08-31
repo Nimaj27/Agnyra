@@ -1,5 +1,5 @@
 // tournee.js — Logique métier tournée calendriers
-import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetAll, fsQuery, fsListen, where, serverTimestamp } from "./firebase.js";
+import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetAll, fsGetAllOrg, fsQuery, fsListen, fsListenOrg, where, serverTimestamp } from "./firebase.js";
 import { recalculerTotauxSecteur } from "./secteurs.js";
 
 export const STATUT_PASSAGE = { DON:"don", OFFERT:"offert", REFUSE:"refuse", ABSENT:"absent", RELANCE:"relance" };
@@ -47,7 +47,7 @@ export async function supprimerEquipe(id) {
 
 // Table { equipeId → pin } — réservée aux administrateurs (règle "list")
 export async function lirePins() {
-  const tous = await fsGetAll(COLLECTIONS.PINS);
+  const tous = await fsGetAllOrg(COLLECTIONS.PINS);
   const map = {};
   // p.pin porte le code à 4 chiffres nu ; p.id (la clé "<org>_<pin>") sert
   // de repli pour d'éventuels documents antérieurs à ce champ.
@@ -57,7 +57,7 @@ export async function lirePins() {
 
 // Migration : déplace les PIN encore stockés dans /equipes vers /pins
 export async function migrerPins() {
-  const equipes = await fsGetAll(COLLECTIONS.EQUIPES);
+  const equipes = await fsGetAllOrg(COLLECTIONS.EQUIPES);
   let deplaces = 0, conflits = 0;
   for (const e of equipes) {
     if (!e.pin) continue;
@@ -71,10 +71,10 @@ export async function migrerPins() {
   }
   return { deplaces, conflits, total: equipes.length };
 }
-export async function lireEquipes() { return fsGetAll(COLLECTIONS.EQUIPES); }
+export async function lireEquipes() { return fsGetAllOrg(COLLECTIONS.EQUIPES); }
 export async function lireEquipe(id) { return fsGet(COLLECTIONS.EQUIPES, id); }
 export function ecouterEquipes(callback) {
-  return fsListen(COLLECTIONS.EQUIPES, (equipes) => {
+  return fsListenOrg(COLLECTIONS.EQUIPES, (equipes) => {
     equipes.sort((a,b)=>a.nom.localeCompare(b.nom));
     callback(equipes);
   });
@@ -134,7 +134,12 @@ export async function passagesDeLEquipe(equipeId) {
   const passages = await fsQuery(COLLECTIONS.PASSAGES, where("equipeId","==",equipeId));
   return passages.sort((a,b)=>(a.datePassage||"").localeCompare(b.datePassage||""));
 }
-export async function foyersARelancer() { return fsQuery(COLLECTIONS.PASSAGES, where("aRelancer","==",true)); }
+export async function foyersARelancer() {
+  // Filtré côté client plutôt que par une 2e clause where() : évite
+  // d'exiger un index composite (aRelancer + organisationId) sur Firestore.
+  const passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
+  return passages.filter(p => p.aRelancer);
+}
 export function ecouterPassagesSecteur(secteurId, callback) {
   return fsListen(COLLECTIONS.PASSAGES, (passages) => {
     passages.sort((a,b)=>(b.datePassage||"").localeCompare(a.datePassage||""));
@@ -144,7 +149,7 @@ export function ecouterPassagesSecteur(secteurId, callback) {
 
 export async function statsGlobalesTournee() {
   const [passages, equipes, secteurs] = await Promise.all([
-    fsGetAll(COLLECTIONS.PASSAGES), fsGetAll(COLLECTIONS.EQUIPES), fsGetAll(COLLECTIONS.SECTEURS)
+    fsGetAllOrg(COLLECTIONS.PASSAGES), fsGetAllOrg(COLLECTIONS.EQUIPES), fsGetAllOrg(COLLECTIONS.SECTEURS)
   ]);
   let totalEspeces=0, totalCheques=0, totalCarte=0, nbDons=0, nbOfferts=0, nbRefus=0, nbAbsents=0, nbRelances=0;
   for (const p of passages) {
@@ -184,7 +189,7 @@ export function celluleCSV(value) {
 }
 
 export async function exporterBilanCSV() {
-  const [passages, secteurs, equipes] = await Promise.all([fsGetAll(COLLECTIONS.PASSAGES), fsGetAll(COLLECTIONS.SECTEURS), fsGetAll(COLLECTIONS.EQUIPES)]);
+  const [passages, secteurs, equipes] = await Promise.all([fsGetAllOrg(COLLECTIONS.PASSAGES), fsGetAllOrg(COLLECTIONS.SECTEURS), fsGetAllOrg(COLLECTIONS.EQUIPES)]);
   const secteurMap = Object.fromEntries(secteurs.map(s=>[s.id,s]));
   const ligne = (...vals) => vals.map(celluleCSV).join(";") + "\n";
   let csv = "BILAN PAR SECTEUR\n" + ligne("Secteur","Commune","Équipe","Statut","Total collecté (€)","Foyers visités","Absents");
@@ -221,14 +226,14 @@ export function telechargerCSV(csv, filename="bilan-tournee-calendriers.csv") {
 // Les secteurs et les équipes sont conservés ; seuls les passages sont
 // supprimés et les totaux des secteurs remis à zéro.
 export async function effacerTousLesPassages() {
-  const passages = await fsGetAll(COLLECTIONS.PASSAGES);
+  const passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
   let supprimes = 0, erreurs = 0;
   for (const p of passages) {
     try { await fsDelete(COLLECTIONS.PASSAGES, p.id); supprimes++; }
     catch(e) { erreurs++; }
   }
   // Remettre à zéro les compteurs de chaque secteur
-  const secteurs = await fsGetAll(COLLECTIONS.SECTEURS);
+  const secteurs = await fsGetAllOrg(COLLECTIONS.SECTEURS);
   for (const s of secteurs) {
     try {
       await fsUpdate(COLLECTIONS.SECTEURS, s.id, {

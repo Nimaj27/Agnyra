@@ -77,6 +77,24 @@ const fsListen     = (col, cb, ...constraints) => {
 const fsListenDoc  = (col, id, cb) =>
   onSnapshot(doc(db, col, id), snap => cb(snap.exists() ? { id: snap.id, ...snap.data() } : null));
 
+// ── Caserne courante (chantier multi-tenant) ─────────────────────
+// État partagé, alimenté par app.js à chaque connexion/changement de
+// caserne. Permet à secteurs.js/tournee.js/historique.js de filtrer
+// leurs lectures par organisationId sans dépendre de APP (propre à
+// app.js) ni faire remonter ce paramètre dans des dizaines d'appels.
+let _organisationCourante = null;
+const definirOrganisationCourante = (id) => { _organisationCourante = id; };
+const organisationCourante = () => _organisationCourante;
+
+// Variantes de fsGetAll/fsListen filtrées sur la caserne courante — à
+// utiliser pour toute lecture de secteurs/équipes/passages/pins qui ne
+// serait pas déjà restreinte par un identifiant plus précis (equipeId,
+// secteurId...). Sans ce filtre, changer de caserne dans l'interface ne
+// change rien à ce qui s'affiche : les données de toutes les casernes
+// restent mélangées.
+const fsGetAllOrg  = (col)     => fsQuery(col, where("organisationId", "==", organisationCourante()));
+const fsListenOrg  = (col, cb) => fsListen(col, cb, where("organisationId", "==", organisationCourante()));
+
 // ── Session technique ────────────────────────────────────────
 // Les règles Firestore exigent une session. Les équipiers (code PIN) n'ont
 // pas de compte : on leur ouvre une session anonyme Firebase, ce qui permet
@@ -199,7 +217,8 @@ export {
   db, auth, writeBatch,
   COLLECTIONS, ORGANISATION_ACTUELLE,
   fsCollection, fsDoc, fsAdd, fsSet, fsUpdate, fsDelete,
-  fsGet, fsGetAll, fsQuery, fsListen, fsListenDoc,
+  fsGet, fsGetAll, fsQuery, fsListen, fsListenDoc, fsGetAllOrg, fsListenOrg,
+  definirOrganisationCourante, organisationCourante,
   loginGoogle, getLoginRedirect, logoutGoogle, onAuth, isAdmin, loginPin,
   obtenirOrganisationAdmin, estSuperAdminEmail,
   assurerSession, estAnonyme,

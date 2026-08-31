@@ -1,6 +1,6 @@
 // historique.js — Historique multi-années
-import { COLLECTIONS, fsSet, fsGet, fsGetAll, fsDelete, db, writeBatch } from "./firebase.js";
-import { collection, doc, getDocs, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+import { COLLECTIONS, fsSet, fsGet, fsGetAll, fsGetAllOrg, fsDelete, db, writeBatch, organisationCourante } from "./firebase.js";
+import { collection, doc, getDocs, setDoc, deleteDoc, query, where } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 import { lireSecteurs } from "./secteurs.js";
 import { lireEquipes, statsGlobalesTournee } from "./tournee.js";
 
@@ -47,7 +47,7 @@ export async function archiverSaison(annee) {
   const [secteurs, equipes, stats] = await Promise.all([lireSecteurs(), lireEquipes(), statsGlobalesTournee()]);
 
   // Détail par adresse : ce que chaque foyer a donné cette année-là
-  const passages = await fsGetAll(COLLECTIONS.PASSAGES);
+  const passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
   const secteurNom = Object.fromEntries(secteurs.map(s => [s.id, s.nom]));
   const adresses = {};
   for (const p of passages) {
@@ -106,7 +106,10 @@ export async function archiverSaison(annee) {
 
 export async function reinitialiserSaison() {
   const collections = [COLLECTIONS.SECTEURS, COLLECTIONS.EQUIPES, COLLECTIONS.PASSAGES, COLLECTIONS.PINS];
-  const snaps = await Promise.all(collections.map(c => getDocs(collection(db, c))));
+  const orgId = organisationCourante();
+  const snaps = await Promise.all(collections.map(c =>
+    getDocs(query(collection(db, c), where("organisationId", "==", orgId)))
+  ));
   const refs = snaps.flatMap(s => s.docs.map(d => d.ref));
   return supprimerRefsParLots(refs);
 }
