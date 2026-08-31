@@ -1568,6 +1568,16 @@ async function obtenirOrganisationAdmin(email) {
   return snap.data()?.organisationId || ORGANISATION_ACTUELLE;
 }
 
+// Un super-admin gère la plateforme (onboarding de casernes), pas une
+// caserne fixe — il doit la choisir à chaque session (voir
+// afficherChoixCaserneAdmin() dans app.js) plutôt que de se voir imposer
+// le repli "pacy" de obtenirOrganisationAdmin().
+async function estSuperAdminEmail(email) {
+  if (!email) return false;
+  const snap = await getDoc(doc(db, COLLECTIONS.ADMINS, String(email).trim().toLowerCase()));
+  return snap.exists() && snap.data()?.superAdmin === true;
+}
+
 // Connexion par code PIN, scopée à une caserne (chantier multi-tenant,
 // point 3 — code caserne saisi explicitement). La clé du document dans
 // /pins combine caserne + PIN ("<organisationId>_<pin>") : deux casernes
@@ -3678,6 +3688,7 @@ window.APP = {
   equipeId:  null,
   equipeNom: null,
   organisationId: null, // caserne identifiée à la connexion (chantier multi-tenant, point 3)
+  estSuperAdmin: false, // gère plusieurs casernes, choisit laquelle administrer par session
   // Désabonnements Firestore temps réel
   unsubs: []
 };
@@ -3845,10 +3856,11 @@ onAuth(async (user) => {
     if (admin) {
       APP.role = "admin";
       APP.user = user;
-      APP.organisationId = await obtenirOrganisationAdmin(user.email);
-      demarrerPlanificateurResume();
-      const hash = window.location.hash;
-      naviguer(ROUTES[hash] && hash !== "#login" ? hash : "#dashboard");
+      if (await resoudreOrganisationAdmin(user.email)) {
+        demarrerPlanificateurResume();
+        const hash = window.location.hash;
+        naviguer(ROUTES[hash] && hash !== "#login" ? hash : "#dashboard");
+      }
       return;
     }
     toast("Accès refusé : " + user.email + " n'est pas administrateur.", "error");
@@ -3860,6 +3872,23 @@ onAuth(async (user) => {
     await assurerSession();
   }
 });
+
+// ── Grille de choix de caserne (par logo), partagée équipier/admin ──
+// Initiales de repli tant qu'une caserne n'a pas encore de vrai logo
+// (logoBase64 null) — dérivées du slug, ex. "saint-andre" → "SA".
+function initialesCaserne(org) {
+  return (org.slug || org.nom || "?").split(/[-\s]+/).map(m => m[0]).join("").toUpperCase().slice(0, 3);
+}
+function rendreTuileCaserne(org) {
+  return `
+    <button type="button" class="caserne-tuile" data-slug="${h(org.slug)}">
+      ${org.logoBase64
+        ? `<img src="${org.logoBase64}" alt="">`
+        : `<span class="caserne-initiales" style="background:${h(org.couleur || 'var(--rouge)')}">${initialesCaserne(org)}</span>`}
+      <span class="caserne-nom">${h(org.nom || org.slug)}</span>
+    </button>
+  `;
+}
 
 // ════════════════════════════════════════════════════════════
 //  PAGE LOGIN
@@ -3943,8 +3972,9 @@ function bindLoginEvents() {
           if (admin) {
             APP.role = "admin";
             APP.user = result.user;
-            APP.organisationId = await obtenirOrganisationAdmin(result.user.email);
-            naviguer("#dashboard");
+            if (await resoudreOrganisationAdmin(result.user.email)) {
+              naviguer("#dashboard");
+            }
           } else {
             toast("Accès refusé : " + result.user.email + " n\'est pas administrateur.", "error");
             await logoutGoogle();
@@ -3980,12 +4010,6 @@ function bindLoginEvents() {
     etapeCaserne && etapeCaserne.classList.remove("hidden");
   }
 
-  // Initiales de repli tant qu'une caserne n'a pas encore de vrai logo
-  // (logoBase64 null) — dérivées du slug, ex. "saint-andre" → "SA".
-  function initialesCaserne(org) {
-    return (org.slug || org.nom || "?").split(/[-\s]+/).map(m => m[0]).join("").toUpperCase().slice(0, 3);
-  }
-
   async function afficherGrilleCasernes() {
     const grille = document.getElementById("grille-casernes");
     const errEl  = document.getElementById("caserne-error");
@@ -3993,14 +4017,7 @@ function bindLoginEvents() {
     errEl && errEl.classList.add("hidden");
     try {
       const organisations = (await listerOrganisations()).filter(o => o.actif);
-      grille.innerHTML = organisations.map(org => `
-        <button type="button" class="caserne-tuile" data-slug="${h(org.slug)}">
-          ${org.logoBase64
-            ? `<img src="${org.logoBase64}" alt="">`
-            : `<span class="caserne-initiales" style="background:${h(org.couleur || 'var(--rouge)')}">${initialesCaserne(org)}</span>`}
-          <span class="caserne-nom">${h(org.nom || org.slug)}</span>
-        </button>
-      `).join("");
+      grille.innerHTML = organisations.map(rendreTuileCaserne).join("");
       grille.querySelectorAll(".caserne-tuile").forEach(btn => {
         btn.addEventListener("click", () => {
           const org = organisations.find(o => o.slug === btn.dataset.slug);
@@ -4073,6 +4090,66 @@ function bindLoginEvents() {
   });
 }
 
+
+// ── Écran de choix de caserne pour un super-admin ────────────────
+// Un super-admin gère la plateforme, pas une caserne en particulier : il
+// doit choisir laquelle administrer pour cette session (mémorisé dans
+// sessionStorage.adminOrganisationId, jusqu'à déconnexion ou changement
+// explicite via le bouton "Changer de caserne" du menu admin).
+function afficherChoixCaserneAdmin() {
+  stopUnsubs();
+  const main = document.getElementById("main");
+  main.innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="login-logo">
+          <img src="${LOGO_BELENOS}" alt="Belenos" style="width:64px;height:64px;object-fit:contain;">
+          <div class="login-logo-text">
+            <span class="login-logo-title">Belenos</span>
+            <span class="login-logo-sub">Quelle caserne veux-tu gérer ?</span>
+          </div>
+        </div>
+        <div id="grille-casernes-admin" class="caserne-grille"></div>
+        <div id="caserne-admin-error" class="error-msg hidden">Impossible de charger les casernes</div>
+      </div>
+    </div>
+  `;
+  (async () => {
+    const grille = document.getElementById("grille-casernes-admin");
+    const errEl  = document.getElementById("caserne-admin-error");
+    try {
+      const organisations = (await listerOrganisations()).filter(o => o.actif);
+      grille.innerHTML = organisations.map(rendreTuileCaserne).join("");
+      grille.querySelectorAll(".caserne-tuile").forEach(btn => {
+        btn.addEventListener("click", () => {
+          sessionStorage.setItem("adminOrganisationId", btn.dataset.slug);
+          APP.organisationId = btn.dataset.slug;
+          demarrerPlanificateurResume();
+          naviguer("#dashboard");
+        });
+      });
+    } catch (e) {
+      errEl && errEl.classList.remove("hidden");
+    }
+  })();
+}
+
+// Détermine la caserne administrée par cette session. Un admin de
+// caserne (organisationId sur son document) n'a rien à choisir. Un
+// super-admin choisit via afficherChoixCaserneAdmin() — dans ce cas la
+// fonction rend cet écran et retourne false : l'appelant ne doit alors
+// pas naviguer davantage, le choix s'en charge lui-même.
+async function resoudreOrganisationAdmin(email) {
+  APP.estSuperAdmin = await estSuperAdminEmail(email);
+  if (!APP.estSuperAdmin) {
+    APP.organisationId = await obtenirOrganisationAdmin(email);
+    return true;
+  }
+  const orgSauvee = sessionStorage.getItem("adminOrganisationId");
+  if (orgSauvee) { APP.organisationId = orgSauvee; return true; }
+  afficherChoixCaserneAdmin();
+  return false;
+}
 
 // ── Écran de choix du membre (mode binôme/trinôme) ──────────────
 function afficherChoixMembre(equipe, membres) {
@@ -4187,6 +4264,7 @@ function layoutAdmin(activeHash, content) {
         </ul>
         <div class="sidebar-footer">
           <span class="sidebar-user">${h(APP.user?.email || '')}</span>
+          ${APP.estSuperAdmin ? `<button id="btn-changer-caserne-admin" class="btn btn--ghost btn--sm">Changer de caserne</button>` : ''}
           <button id="btn-logout" class="btn btn--ghost btn--sm">Déconnexion</button>
         </div>
       </nav>
@@ -4198,12 +4276,17 @@ function layoutAdmin(activeHash, content) {
 }
 
 function bindLogout() {
+  document.getElementById("btn-changer-caserne-admin")?.addEventListener("click", () => {
+    sessionStorage.removeItem("adminOrganisationId");
+    afficherChoixCaserneAdmin();
+  });
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
     stopUnsubs();
     if (APP.role === "admin") await logoutGoogle();
     sessionStorage.removeItem("equipe");
     sessionStorage.removeItem("membre");
-    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.organisationId = null;
+    sessionStorage.removeItem("adminOrganisationId");
+    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.organisationId = null; APP.estSuperAdmin = false;
     try { await assurerSession(); } catch(e) {}   // garder une session pour l'accès PIN
     naviguer("#login");
   });
