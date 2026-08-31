@@ -15,26 +15,23 @@
 //   - admins : un utilisateur connecté peut lire uniquement SON PROPRE
 //     document (nécessaire pour isAdmin()/obtenirOrganisationAdmin()),
 //     pas la collection entière
-//   - equipes/secteurs/passages/pins : lecture/écriture réservées à
-//     l'admin de la caserne concernée (organisationId du document) ou à
-//     un super-admin — nécessaire pour que le script de migration
-//     (scripts/migration-pacy-vers-belenos.html) puisse écrire les
-//     données copiées depuis calendrier-pacy
+//   - equipes/secteurs/passages/pins : lecture/écriture ouvertes à toute
+//     session authentifiée (y compris anonyme/équipier), SANS distinction
+//     de caserne pour l'instant — décision temporaire, voir le bloc ⚠️
+//     plus bas dans ce fichier pour le pourquoi et les conditions de
+//     fermeture. Seule la suppression reste réservée à l'admin de la
+//     caserne concernée (ou à un super-admin).
 //   - config/journal : réservés à un admin authentifié (n'importe lequel :
 //     ces deux collections ne portent pas encore d'organisationId, elles
 //     restent globales pour l'instant — à revoir si elles doivent un jour
 //     être scindées par caserne)
 //   - tout le reste : refusé par défaut
 //
-// Volontairement hors périmètre pour l'instant : l'accès équipier (sessions
-// anonymes via code PIN) à equipes/secteurs/passages/pins. Une session
-// anonyme ne porte aucune information de caserne dans son jeton
-// d'authentification — un cloisonnement robuste demanderait une Cloud
-// Function qui vérifie le PIN côté serveur et émet un jeton avec
+// Cloisonnement équipier réellement robuste (sessions anonymes via code
+// PIN scopées à leur seule caserne, y compris en écriture) : nécessiterait
+// une Cloud Function qui vérifie le PIN côté serveur et émet un jeton avec
 // organisationId/equipeId en claims (code prêt, voir functions/, non
-// déployé — nécessite le plan Blaze). Tant que ce n'est pas fait, l'écran
-// de connexion équipier de l'app reste inopérant sur ce projet ; seul
-// l'accès admin est câblé ici.
+// déployé — nécessite le plan Blaze, écarté pour l'instant).
 
 rules_version = '2';
 
@@ -96,40 +93,38 @@ service cloud.firestore {
         && request.resource.data.organisationId == resource.data.organisationId;
     }
 
-    // "list" (lecture de collection, avec ou sans filtre) reste ouvert à
-    // tout admin pour l'instant : l'app lit ces collections sans filtre
-    // organisationId (fsGetAll/fsListen non scopés), et Firestore rejette
-    // en bloc toute requête de liste dont le filtre ne correspond pas
-    // exactement au champ utilisé par la règle — même si chaque document
-    // retourné la validerait individuellement. Cloisonner "list" demande
-    // de revoir tous ces appels pour leur ajouter where("organisationId",
-    // "==", ...), un chantier à part entière. Sans risque tant qu'une
-    // seule caserne est active (même raisonnement que le volet équipier).
-    // "get" (lecture d'un document précis par ID) n'a pas cette
-    // contrainte et reste cloisonné dès maintenant.
+    // ⚠️ ACCÈS ÉQUIPIER TEMPORAIREMENT OUVERT (chantier multi-tenant,
+    // point 4, volet équipier — décision explicite du 31/08/2026 pour
+    // pouvoir tester le côté Amicaliste sans la Cloud Function/plan
+    // Blaze) : get/list/create/update sont ouverts à TOUTE session
+    // authentifiée, y compris anonyme (code PIN), SANS vérification de
+    // caserne — exactement la posture de l'ancienne app calendrier-pacy
+    // (un seul domaine de confiance partagé). "list" est de toute façon
+    // ouvert car l'app lit ces collections sans filtre organisationId
+    // (fsGetAll/fsListen non scopés) : Firestore rejette en bloc toute
+    // requête de liste dont le filtre ne correspond pas exactement au
+    // champ utilisé par la règle, même si chaque document retourné la
+    // validerait individuellement.
+    // Sans risque réel tant que ezy/saint-andre n'ont aucune vraie équipe
+    // de test — À REFERMER (repasser get/list/create/update sur
+    // accesDocumentOrganisation()/peutAdministrerOrganisation(), comme
+    // "delete" ci-dessous) avant d'y créer de vraies données de test, ou
+    // de déployer la Cloud Function pour un cloisonnement robuste.
     match /equipes/{id} {
-      allow get, delete: if accesDocumentOrganisation();
-      allow list: if estAdmin();
-      allow update: if miseAJourSansChangerOrganisation();
-      allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
+      allow get, list, create, update: if request.auth != null;
+      allow delete: if accesDocumentOrganisation();
     }
     match /secteurs/{id} {
-      allow get, delete: if accesDocumentOrganisation();
-      allow list: if estAdmin();
-      allow update: if miseAJourSansChangerOrganisation();
-      allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
+      allow get, list, create, update: if request.auth != null;
+      allow delete: if accesDocumentOrganisation();
     }
     match /passages/{id} {
-      allow get, delete: if accesDocumentOrganisation();
-      allow list: if estAdmin();
-      allow update: if miseAJourSansChangerOrganisation();
-      allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
+      allow get, list, create, update: if request.auth != null;
+      allow delete: if accesDocumentOrganisation();
     }
     match /pins/{id} {
-      allow get, delete: if accesDocumentOrganisation();
-      allow list: if estAdmin();
-      allow update: if miseAJourSansChangerOrganisation();
-      allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
+      allow get, list, create, update: if request.auth != null;
+      allow delete: if accesDocumentOrganisation();
     }
 
     // Pas encore scindés par caserne (voir note en tête de fichier).
