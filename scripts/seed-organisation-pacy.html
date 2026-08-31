@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Seed one-off — organisations/pacy</title>
+</head>
+<body>
+  <h1>Seed one-off — organisations/pacy</h1>
+  <p>
+    Script temporaire (chantier multi-tenant, point 1, étape 3).
+    <strong>À supprimer une fois le document créé et vérifié.</strong>
+  </p>
+  <p>
+    Prérequis : un document <code>admins/&lt;ton-email-en-minuscules&gt;</code>
+    doit déjà exister dans le projet Firebase ciblé — sinon la connexion
+    réussira mais le bouton de seed restera désactivé.
+  </p>
+  <button id="btn-login">1. Se connecter (compte admin)</button>
+  <button id="btn-seed" disabled>2. Créer organisations/pacy</button>
+  <pre id="log"></pre>
+
+  <script type="module">
+    import { loginGoogle, onAuth, isAdmin, creerOrganisation, obtenirOrganisation }
+      from "../js/firebase.js";
+
+    const log = (msg) => {
+      document.getElementById("log").textContent += msg + "\n";
+      console.log(msg);
+    };
+
+    document.getElementById("btn-login").onclick = () =>
+      loginGoogle().catch(e => log("❌ Erreur connexion : " + e.message));
+
+    onAuth(async (user) => {
+      if (!user) { log("Non connecté."); return; }
+      const admin = await isAdmin(user.email);
+      log(`Connecté : ${user.email} — admin : ${admin}`);
+      document.getElementById("btn-seed").disabled = !admin;
+    });
+
+    document.getElementById("btn-seed").onclick = async () => {
+      try {
+        // Récupère le logo actuel directement depuis app.js (fetch texte,
+        // pas un import de module) pour ne pas dupliquer le blob base64
+        // ni déclencher le bootstrap de l'app.
+        const source = await fetch("../js/app.js").then(r => r.text());
+        const match = source.match(/const LOGO_CASERNE_ACTUELLE = "(data:image\/png;base64,[^"]+)"/);
+        if (!match) throw new Error("LOGO_CASERNE_ACTUELLE introuvable dans app.js");
+
+        await creerOrganisation({
+          slug: "pacy",
+          nom: "Amicale des Sapeurs-Pompiers de Pacy-sur-Eure",
+          couleur: "#CC1D1D",
+          logoBase64: match[1],
+          actif: true
+        });
+        log("✅ organisations/pacy créé.");
+
+        const relu = await obtenirOrganisation("pacy");
+        log("Relecture : " + JSON.stringify({ ...relu, logoBase64: relu.logoBase64.slice(0, 40) + "…" }));
+      } catch (e) {
+        log("❌ Erreur : " + e.message);
+      }
+    };
+  </script>
+</body>
+</html>

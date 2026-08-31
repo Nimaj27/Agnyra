@@ -1427,16 +1427,16 @@ body {
   <script type="module">
 // ============================================================
 // firebase.js — Configuration et initialisation Firebase
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Belenos — projet Firebase dédié (chantier multi-tenant, point 1)
 // ============================================================
 
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyCj7etN5gV8CckkOBiFaKn38D_onZCIE2A",
-  authDomain:        "calendrier-pacy.firebaseapp.com",
-  projectId:         "calendrier-pacy",
-  storageBucket:     "calendrier-pacy.firebasestorage.app",
-  messagingSenderId: "767402684897",
-  appId:             "1:767402684897:web:134c456b1de29b2dace2a0"
+  apiKey:            "AIzaSyAdKgOOKSklOYiud8mC4VSBUUhT1HWNlJ0",
+  authDomain:        "belenos-611bd.firebaseapp.com",
+  projectId:         "belenos-611bd",
+  storageBucket:     "belenos-611bd.firebasestorage.app",
+  messagingSenderId: "503376077615",
+  appId:             "1:503376077615:web:638bac385c2cc3bfa477da"
 };
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
@@ -1468,13 +1468,14 @@ try {
 }
 
 const COLLECTIONS = {
-  CONFIG:   "config",
-  EQUIPES:  "equipes",
-  SECTEURS: "secteurs",
-  PASSAGES: "passages",
-  ADMINS:   "admins",
-  PINS:     "pins",     // { pin } → { equipeId } : le code est l'identifiant du document
-  JOURNAL:  "journal"   // traçabilité des corrections et suppressions
+  CONFIG:        "config",
+  EQUIPES:       "equipes",
+  SECTEURS:      "secteurs",
+  PASSAGES:      "passages",
+  ADMINS:        "admins",
+  PINS:          "pins",         // { pin } → { equipeId } : le code est l'identifiant du document
+  JOURNAL:       "journal",      // traçabilité des corrections et suppressions
+  ORGANISATIONS: "organisations" // une caserne par document, le slug (ex. "pacy") sert d'ID
 };
 
 const fsCollection = (name)          => collection(db, name);
@@ -1541,6 +1542,25 @@ async function loginPin(pin) {
   const equipe = await fsGet(COLLECTIONS.EQUIPES, ref.equipeId);
   return equipe || null;
 }
+
+// ── Organisations (chantier multi-tenant, point 1) ──────────────
+// Une organisation = une caserne. Le slug (ex. "pacy") sert d'ID de document :
+// ça permet une lecture directe lors de l'identification par code caserne
+// (chantier 3), sans passer par une requête ("where slug ==").
+// Rattachement des données (secteurs/équipes/passages) : chantier 2.
+// Cloisonnement inter-organisations : chantier 4.
+
+async function creerOrganisation({ slug, nom, couleur, logoBase64 = null, actif = true }) {
+  await setDoc(doc(db, COLLECTIONS.ORGANISATIONS, slug), {
+    slug, nom, couleur, logoBase64, actif,
+    dateCreation: serverTimestamp()
+  });
+}
+
+const obtenirOrganisation = (slug) => fsGet(COLLECTIONS.ORGANISATIONS, slug);
+
+// Réservé aux comptes admin authentifiés — voir les règles Firestore.
+const listerOrganisations = () => fsGetAll(COLLECTIONS.ORGANISATIONS);
 
 const _networkListeners = [];
 let _isOnline = navigator.onLine;
