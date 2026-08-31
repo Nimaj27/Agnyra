@@ -3,6 +3,14 @@
 // Chantier multi-tenant, point 4 (volet équipier)
 // ============================================================
 //
+// NON DÉPLOYÉE ET NON BRANCHÉE CÔTÉ CLIENT pour l'instant : nécessite le
+// plan Blaze (payant, même si l'usage réel reste gratuit), écarté tant
+// qu'une seule caserne (Pacy) est réellement active. js/firebase.js
+// utilise toujours la vérification directe du PIN en Firestore (plan
+// gratuit Spark). Ce fichier reste prêt à l'emploi pour le jour où une
+// 2e caserne devient réellement active en parallèle — voir la note dans
+// loginPin() de js/firebase.js pour ce qu'il faudra rebrancher.
+//
 // Une session anonyme (équipier connecté par code PIN) ne porte aucune
 // information de caserne dans son jeton d'authentification : les règles
 // Firestore ne peuvent donc pas cloisonner ses lectures/écritures par
