@@ -3900,6 +3900,14 @@ function rendreTuileCaserne(org) {
   `;
 }
 
+// Centre approximatif (commune) de chaque caserne, pour la vue initiale
+// de la carte du tableau de bord (chantier multi-tenant). [lat, lon].
+const CENTRE_CARTE_PAR_ORGANISATION = {
+  pacy: [49.016, 1.383],
+  ezy: [48.865, 1.4195],
+  "saint-andre": [48.905, 1.277]
+};
+
 // ════════════════════════════════════════════════════════════
 //  PAGE LOGIN
 // ════════════════════════════════════════════════════════════
@@ -4359,7 +4367,7 @@ async function renderDashboard() {
 
   // Initialiser la carte
   let dashboardMap = null;
-  initCarte("dashboard-map", { zoom: 11 }).then(map => { dashboardMap = map; refreshCarte(); });
+  initCarte("dashboard-map", { zoom: 11, center: CENTRE_CARTE_PAR_ORGANISATION[APP.organisationId] }).then(map => { dashboardMap = map; refreshCarte(); });
 
   async function refreshCarte() {
     if (!dashboardMap) return;
