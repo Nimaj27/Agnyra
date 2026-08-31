@@ -1,15 +1,15 @@
 // ============================================================
 // firebase.js — Configuration et initialisation Firebase
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Belenos — projet Firebase dédié (chantier multi-tenant, point 1)
 // ============================================================
 
 const FIREBASE_CONFIG = {
-  apiKey:            "AIzaSyCj7etN5gV8CckkOBiFaKn38D_onZCIE2A",
-  authDomain:        "calendrier-pacy.firebaseapp.com",
-  projectId:         "calendrier-pacy",
-  storageBucket:     "calendrier-pacy.firebasestorage.app",
-  messagingSenderId: "767402684897",
-  appId:             "1:767402684897:web:134c456b1de29b2dace2a0"
+  apiKey:            "AIzaSyAdKgOOKSklOYiud8mC4VSBUUhT1HWNlJ0",
+  authDomain:        "belenos-611bd.firebaseapp.com",
+  projectId:         "belenos-611bd",
+  storageBucket:     "belenos-611bd.firebasestorage.app",
+  messagingSenderId: "503376077615",
+  appId:             "1:503376077615:web:638bac385c2cc3bfa477da"
 };
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
