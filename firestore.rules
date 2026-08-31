@@ -1,19 +1,32 @@
 // ============================================================
 // firestore.rules — Belenos
-// Chantier multi-tenant, point 1 : collection "organisations"
+// Chantier multi-tenant, point 4 : cloisonnement (volet admin)
 // ============================================================
 //
-// Périmètre volontairement restreint à ce chantier :
-//   - organisations : lecture/écriture réservées à un compte admin authentifié
+// Périmètre de ce fichier à ce stade :
+//   - organisations : lecture ouverte à toute session (même anonyme —
+//     nécessaire à l'identification de la caserne à la connexion,
+//     chantier 3, avant même de savoir si l'utilisateur est admin ou
+//     équipier) ; écriture réservée à l'admin de CETTE caserne (un admin
+//     ne peut plus modifier une organisation qui n'est pas la sienne)
 //   - admins : un utilisateur connecté peut lire uniquement SON PROPRE
-//     document (nécessaire pour isAdmin(), déjà utilisé partout dans l'app),
+//     document (nécessaire pour isAdmin()/obtenirOrganisationAdmin()),
 //     pas la collection entière
 //   - tout le reste : refusé par défaut
 //
-// Pas de logique de cloisonnement inter-organisations ici (chantier 4).
-// Les règles pour equipes/secteurs/passages/pins/journal/config seront
-// reprises du projet Firebase actuel (calendrier-pacy) au moment de la
-// migration (chantier 6) puis adaptées au cloisonnement (chantier 4).
+// Volontairement hors périmètre pour l'instant : le cloisonnement côté
+// équipier (sessions anonymes via code PIN). Une session anonyme ne porte
+// aucune information de caserne dans son jeton d'authentification — un
+// cloisonnement robuste demanderait une Cloud Function qui vérifie le PIN
+// côté serveur et émet un jeton avec organisationId/equipeId en claims.
+// Traité comme prérequis explicite avant d'onboarder une 2e caserne, pas
+// avant : une seule caserne existe aujourd'hui, donc aucune fuite de
+// données inter-organisations n'est possible sur ce point à ce stade.
+//
+// equipes/secteurs/passages/pins/journal/config restent refusés par
+// défaut sur ce projet tant que leurs règles de base n'ont pas été
+// reprises du projet calendrier-pacy (chantier 6) — on ne peut pas
+// "adapter au cloisonnement" des règles qui n'existent pas encore ici.
 
 rules_version = '2';
 
@@ -26,6 +39,17 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower()));
     }
 
+    // Caserne administrée par l'admin connecté. Reflète le repli côté
+    // client (obtenirOrganisationAdmin() dans firebase.js) : à défaut de
+    // champ organisationId sur son document admins/{email}, on retombe
+    // sur "pacy" (chantier multi-tenant, point 3). À garder synchronisé
+    // avec ORGANISATION_ACTUELLE tant que ce TODO n'est pas résolu.
+    // N'est appelée que lorsque estAdmin() est déjà vrai (court-circuit
+    // du &&), donc le document admins/{email} existe forcément ici.
+    function organisationIdAdmin() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())).data.get('organisationId', 'pacy');
+    }
+
     match /admins/{email} {
       allow read: if request.auth != null
         && request.auth.token.email != null
@@ -33,7 +57,8 @@ service cloud.firestore {
     }
 
     match /organisations/{slug} {
-      allow read, write: if estAdmin();
+      allow read: if request.auth != null;
+      allow write: if estAdmin() && organisationIdAdmin() == slug;
     }
 
     // Refus par défaut pour toute collection non explicitement autorisée
