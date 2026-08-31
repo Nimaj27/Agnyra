@@ -96,23 +96,38 @@ service cloud.firestore {
         && request.resource.data.organisationId == resource.data.organisationId;
     }
 
+    // "list" (lecture de collection, avec ou sans filtre) reste ouvert à
+    // tout admin pour l'instant : l'app lit ces collections sans filtre
+    // organisationId (fsGetAll/fsListen non scopés), et Firestore rejette
+    // en bloc toute requête de liste dont le filtre ne correspond pas
+    // exactement au champ utilisé par la règle — même si chaque document
+    // retourné la validerait individuellement. Cloisonner "list" demande
+    // de revoir tous ces appels pour leur ajouter where("organisationId",
+    // "==", ...), un chantier à part entière. Sans risque tant qu'une
+    // seule caserne est active (même raisonnement que le volet équipier).
+    // "get" (lecture d'un document précis par ID) n'a pas cette
+    // contrainte et reste cloisonné dès maintenant.
     match /equipes/{id} {
-      allow read, delete: if accesDocumentOrganisation();
+      allow get, delete: if accesDocumentOrganisation();
+      allow list: if estAdmin();
       allow update: if miseAJourSansChangerOrganisation();
       allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
     }
     match /secteurs/{id} {
-      allow read, delete: if accesDocumentOrganisation();
+      allow get, delete: if accesDocumentOrganisation();
+      allow list: if estAdmin();
       allow update: if miseAJourSansChangerOrganisation();
       allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
     }
     match /passages/{id} {
-      allow read, delete: if accesDocumentOrganisation();
+      allow get, delete: if accesDocumentOrganisation();
+      allow list: if estAdmin();
       allow update: if miseAJourSansChangerOrganisation();
       allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
     }
     match /pins/{id} {
-      allow read, delete: if accesDocumentOrganisation();
+      allow get, delete: if accesDocumentOrganisation();
+      allow list: if estAdmin();
       allow update: if miseAJourSansChangerOrganisation();
       allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
     }
