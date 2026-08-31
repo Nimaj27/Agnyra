@@ -51,6 +51,13 @@ const COLLECTIONS = {
   ORGANISATIONS: "organisations" // une caserne par document, le slug (ex. "pacy") sert d'ID
 };
 
+// Caserne à laquelle rattacher les nouvelles données (chantier multi-tenant,
+// point 2 : secteurs/équipes/passages portent un organisationId).
+// TODO (chantier multi-tenant, point 3) : remplacer cette constante figée par
+// la caserne identifiée à la connexion. Pour l'instant, une seule caserne
+// existe (Pacy-sur-Eure, slug "pacy") donc la valeur reste fixe.
+const ORGANISATION_ACTUELLE = "pacy";
+
 const fsCollection = (name)          => collection(db, name);
 const fsDoc        = (path, ...id)   => doc(db, path, ...id);
 const fsAdd        = (col, data)     => addDoc(collection(db, col), { ...data, createdAt: serverTimestamp() });
@@ -101,15 +108,28 @@ async function isAdmin(email) {
   return snap.exists();
 }
 
-// Connexion par code PIN.
-// Le PIN sert d'identifiant de document dans /pins : il faut donc connaître
-// le code exact pour obtenir la moindre information. La collection n'est pas
-// énumérable (règle "list" réservée aux administrateurs).
-async function loginPin(pin) {
-  const ref = await fsGet(COLLECTIONS.PINS, String(pin));
+// Caserne rattachée à un compte admin (chantier multi-tenant, point 3).
+// Pas de saisie supplémentaire pour l'admin : son compte Google suffit,
+// la caserne est lue sur son document admins/{email}. À défaut de champ
+// organisationId (compte créé avant ce chantier), on retombe sur la
+// caserne unique actuelle.
+async function obtenirOrganisationAdmin(email) {
+  if (!email) return null;
+  const snap = await getDoc(doc(db, COLLECTIONS.ADMINS, String(email).trim().toLowerCase()));
+  if (!snap.exists()) return null;
+  return snap.data()?.organisationId || ORGANISATION_ACTUELLE;
+}
+
+// Connexion par code PIN, scopée à une caserne (chantier multi-tenant,
+// point 3 — code caserne saisi explicitement). La clé du document dans
+// /pins combine caserne + PIN ("<organisationId>_<pin>") : deux casernes
+// peuvent donc réutiliser le même code à 4 chiffres. La collection n'est
+// pas énumérable (règle "list" réservée aux administrateurs).
+async function loginPin(organisationId, pin) {
+  const ref = await fsGet(COLLECTIONS.PINS, `${organisationId}_${pin}`);
   if (!ref || !ref.equipeId) {
     // Repli sur l'ancien stockage, le temps que la migration soit faite
-    const legacy = await fsQuery(COLLECTIONS.EQUIPES, where("pin", "==", pin));
+    const legacy = await fsQuery(COLLECTIONS.EQUIPES, where("pin", "==", pin), where("organisationId", "==", organisationId));
     return legacy.length ? legacy[0] : null;
   }
   const equipe = await fsGet(COLLECTIONS.EQUIPES, ref.equipeId);
@@ -135,6 +155,16 @@ const obtenirOrganisation = (slug) => fsGet(COLLECTIONS.ORGANISATIONS, slug);
 // Réservé aux comptes admin authentifiés — voir les règles Firestore.
 const listerOrganisations = () => fsGetAll(COLLECTIONS.ORGANISATIONS);
 
+// Identification d'une caserne par code saisi à la connexion (chantier
+// multi-tenant, point 3). Normalise la casse/espaces et exige une
+// organisation active — un code désactivé se comporte comme inconnu.
+async function identifierOrganisation(code) {
+  const slug = String(code || "").trim().toLowerCase();
+  if (!slug) return null;
+  const org = await obtenirOrganisation(slug);
+  return (org && org.actif) ? org : null;
+}
+
 const _networkListeners = [];
 let _isOnline = navigator.onLine;
 window.addEventListener("online",  () => { _isOnline = true;  _networkListeners.forEach(cb => cb(true)); });
@@ -147,12 +177,13 @@ function onNetworkChange(cb) {
 
 export {
   db, auth, writeBatch,
-  COLLECTIONS,
+  COLLECTIONS, ORGANISATION_ACTUELLE,
   fsCollection, fsDoc, fsAdd, fsSet, fsUpdate, fsDelete,
   fsGet, fsGetAll, fsQuery, fsListen, fsListenDoc,
   loginGoogle, getLoginRedirect, logoutGoogle, onAuth, isAdmin, loginPin,
+  obtenirOrganisationAdmin,
   assurerSession, estAnonyme,
-  creerOrganisation, obtenirOrganisation, listerOrganisations,
+  creerOrganisation, obtenirOrganisation, listerOrganisations, identifierOrganisation,
   where, orderBy, serverTimestamp, increment,
   isOnline, onNetworkChange, enableNetwork, disableNetwork
 };
