@@ -8,7 +8,10 @@
 //     nécessaire à l'identification de la caserne à la connexion,
 //     chantier 3, avant même de savoir si l'utilisateur est admin ou
 //     équipier) ; écriture réservée à l'admin de CETTE caserne (un admin
-//     ne peut plus modifier une organisation qui n'est pas la sienne)
+//     ne peut plus modifier une organisation qui n'est pas la sienne),
+//     ou à un super-admin plateforme (superAdmin:true sur son document
+//     admins/{email}) pour créer/gérer n'importe quelle caserne — c'est
+//     lui qui onboarde une nouvelle amicale sur la plateforme
 //   - admins : un utilisateur connecté peut lire uniquement SON PROPRE
 //     document (nécessaire pour isAdmin()/obtenirOrganisationAdmin()),
 //     pas la collection entière
@@ -50,6 +53,14 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())).data.get('organisationId', 'pacy');
     }
 
+    // Super-admin plateforme : gère l'onboarding des casernes, pas les
+    // données d'une caserne en particulier. Absent par défaut (false) —
+    // seuls les comptes qui portent explicitement superAdmin:true le sont.
+    function estSuperAdmin() {
+      return estAdmin()
+        && get(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())).data.get('superAdmin', false) == true;
+    }
+
     match /admins/{email} {
       allow read: if request.auth != null
         && request.auth.token.email != null
@@ -58,7 +69,7 @@ service cloud.firestore {
 
     match /organisations/{slug} {
       allow read: if request.auth != null;
-      allow write: if estAdmin() && organisationIdAdmin() == slug;
+      allow write: if estSuperAdmin() || (estAdmin() && organisationIdAdmin() == slug);
     }
 
     // Refus par défaut pour toute collection non explicitement autorisée

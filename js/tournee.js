@@ -6,24 +6,28 @@ export const STATUT_PASSAGE = { DON:"don", OFFERT:"offert", REFUSE:"refuse", ABS
 export const STATUT_PASSAGE_LABEL = { don:"Don collecté", offert:"Calendrier offert", refuse:"A refusé", absent:"Absent", relance:"À relancer" };
 export const MODE_PAIEMENT = { ESPECES:"especes", CHEQUE:"cheque", CARTE:"carte" };
 
-export async function creerEquipe({ nom, membres=[], pin }) {
+export async function creerEquipe({ nom, membres=[], pin, organisationId=ORGANISATION_ACTUELLE }) {
   if (!nom) throw new Error("Nom d'équipe obligatoire");
   if (!pin || !/^\d{4}$/.test(pin)) throw new Error("PIN doit être 4 chiffres");
   // L'unicité est structurelle : "<organisationId>_<pin>" est l'identifiant
   // du document, donc le PIN n'a besoin d'être unique que dans sa caserne
   // (chantier multi-tenant, point 3).
-  const cleId = `${ORGANISATION_ACTUELLE}_${pin}`;
+  const cleId = `${organisationId}_${pin}`;
   const pris = await fsGet(COLLECTIONS.PINS, cleId);
   if (pris) throw new Error("Ce PIN est déjà utilisé");
-  const ref = await fsAdd(COLLECTIONS.EQUIPES, { organisationId: ORGANISATION_ACTUELLE, nom, membres, actif:true });
-  await fsSet(COLLECTIONS.PINS, cleId, { equipeId: ref.id, nom, organisationId: ORGANISATION_ACTUELLE, pin });
+  const ref = await fsAdd(COLLECTIONS.EQUIPES, { organisationId, nom, membres, actif:true });
+  await fsSet(COLLECTIONS.PINS, cleId, { equipeId: ref.id, nom, organisationId, pin });
   return ref;
 }
 export async function mettreAJourEquipe(equipeId, data) {
   const { pin, ...champs } = data;
   if (pin !== undefined && pin !== null && pin !== '') {
     if (!/^\d{4}$/.test(pin)) throw new Error("PIN doit être 4 chiffres");
-    const cleId = `${ORGANISATION_ACTUELLE}_${pin}`;
+    // La caserne de la clé pins/ vient de l'équipe elle-même (source de
+    // vérité), pas d'une valeur devinée ou passée par l'appelant.
+    const equipe = await fsGet(COLLECTIONS.EQUIPES, equipeId);
+    const organisationId = equipe?.organisationId || ORGANISATION_ACTUELLE;
+    const cleId = `${organisationId}_${pin}`;
     const pris = await fsGet(COLLECTIONS.PINS, cleId);
     if (pris && pris.equipeId !== equipeId) throw new Error("Ce PIN est déjà utilisé");
     // Retirer l'ancien code de cette équipe
@@ -31,7 +35,7 @@ export async function mettreAJourEquipe(equipeId, data) {
     for (const p of tous) {
       if (p.equipeId === equipeId && p.id !== cleId) await fsDelete(COLLECTIONS.PINS, p.id);
     }
-    await fsSet(COLLECTIONS.PINS, cleId, { equipeId, nom: champs.nom || pris?.nom || '', organisationId: ORGANISATION_ACTUELLE, pin });
+    await fsSet(COLLECTIONS.PINS, cleId, { equipeId, nom: champs.nom || pris?.nom || '', organisationId, pin });
   }
   if (Object.keys(champs).length) await fsUpdate(COLLECTIONS.EQUIPES, equipeId, champs);
 }
@@ -80,9 +84,13 @@ export async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, 
   if (!secteurId||!equipeId) throw new Error("secteurId et equipeId obligatoires");
   if (!Object.values(STATUT_PASSAGE).includes(statut)) throw new Error("Statut invalide");
   if (statut===STATUT_PASSAGE.DON && montant<=0) throw new Error("Montant requis pour un don");
+  // La caserne du passage vient du secteur lui-même (source de vérité),
+  // pas d'une valeur fixe ni d'un champ fourni par l'appelant.
+  const secteur = await fsGet(COLLECTIONS.SECTEURS, secteurId);
+  const organisationId = secteur?.organisationId || ORGANISATION_ACTUELLE;
   // Le statut "offert" ne requiert aucun montant (calendrier donné sans contrepartie)
   const passage = await fsAdd(COLLECTIONS.PASSAGES, {
-    organisationId: ORGANISATION_ACTUELLE,
+    organisationId,
     secteurId, equipeId, equipeNom, adresse:adresse||"", statut,
     montant: statut===STATUT_PASSAGE.DON ? Number(montant) : 0,
     modePaiement: statut===STATUT_PASSAGE.DON ? modePaiement : null,
