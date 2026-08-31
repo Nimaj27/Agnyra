@@ -928,7 +928,7 @@ async function renderSecteurs() {
           await mettreAJourSecteur(existant.id, donnees);
           updated++;
         } else {
-          await creerSecteur(donnees);
+          await creerSecteur({ ...donnees, organisationId: APP.organisationId });
           created++;
         }
       } catch(err) {
@@ -1291,7 +1291,7 @@ function showSecteurModal(secteur = null) {
     if (!nom || !commune) { toast("Nom et commune obligatoires", "error"); return; }
     try {
       if (secteur) await mettreAJourSecteur(secteur.id, { nom, commune, description, rues, couleur, objectifCalendriers });
-      else await creerSecteur({ nom, commune, description, rues, couleur, objectifCalendriers });
+      else await creerSecteur({ nom, commune, description, rues, couleur, objectifCalendriers, organisationId: APP.organisationId });
       toast(secteur ? "Secteur mis à jour ✅" : "Secteur créé ✅", "success");
       closeModal();
     } catch(e) { toast(e.message, "error"); }
@@ -1414,7 +1414,8 @@ async function renderEquipes() {
         await creerEquipe({
           nom: row.nom,
           pin: row.pin,
-          membres: row.membres ? row.membres.split(';').map(m => m.trim()).filter(Boolean) : []
+          membres: row.membres ? row.membres.split(';').map(m => m.trim()).filter(Boolean) : [],
+          organisationId: APP.organisationId
         });
         created++;
       } catch(err) {
@@ -1569,7 +1570,7 @@ function showEquipeModal(equipe = null) {
     const membres = document.getElementById("e-membres").value.split('\n').map(m => m.trim()).filter(Boolean);
     try {
       if (equipe) await mettreAJourEquipe(equipe.id, { nom, pin, membres });
-      else await creerEquipe({ nom, pin, membres });
+      else await creerEquipe({ nom, pin, membres, organisationId: APP.organisationId });
       toast(equipe ? "Équipe mise à jour ✅" : "Équipe créée ✅", "success");
       closeModal();
     } catch(e) { toast(e.message, "error"); }

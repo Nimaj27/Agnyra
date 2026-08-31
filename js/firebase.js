@@ -125,6 +125,14 @@ async function obtenirOrganisationAdmin(email) {
 // /pins combine caserne + PIN ("<organisationId>_<pin>") : deux casernes
 // peuvent donc réutiliser le même code à 4 chiffres. La collection n'est
 // pas énumérable (règle "list" réservée aux administrateurs).
+//
+// Reste en Firestore direct (plan gratuit Spark), pas de Cloud Function :
+// tant qu'une seule caserne est réellement active, un équipier ne peut
+// de toute façon accéder qu'aux données de sa propre caserne (il n'y en
+// a pas d'autre en usage). Le cloisonnement équipier robuste par jeton
+// personnalisé (functions/verifierCodeEquipe, chantier 4 volet équipier)
+// reste prêt mais non branché — à réactiver ici avant qu'une 2e caserne
+// devienne réellement active en parallèle (nécessite le plan Blaze).
 async function loginPin(organisationId, pin) {
   const ref = await fsGet(COLLECTIONS.PINS, `${organisationId}_${pin}`);
   if (!ref || !ref.equipeId) {

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Migration one-off — calendrier-pacy → belenos-611bd</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    button { display: block; margin: 0.5rem 0; padding: 0.6rem 1rem; }
+    button:disabled { opacity: .5; }
+    pre { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 6px; }
+    .warn { background: #fff3cd; border: 1px solid #ffe08a; padding: 1rem; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>Migration one-off — chantier multi-tenant, point 6</h1>
+  <div class="warn">
+    <strong>Lecture seule sur calendrier-pacy.</strong> Ce script ne fait jamais
+    d'écriture ni de suppression sur le projet source — uniquement des lectures.
+    Toutes les écritures vont vers belenos-611bd. Rien n'est irréversible :
+    relancer le script écrase simplement les mêmes documents avec les mêmes
+    données (mêmes ID préservés).
+  </div>
+  <p><strong>À supprimer une fois la migration validée et le cutover décidé.</strong></p>
+
+  <h2>Étape 1 — Connexions admin</h2>
+  <button id="btn-login-source">1a. Se connecter sur calendrier-pacy (source)</button>
+  <button id="btn-login-dest">1b. Se connecter sur belenos-611bd (destination)</button>
+
+  <h2>Étape 2 — Aperçu (lecture seule)</h2>
+  <button id="btn-preview" disabled>2. Lire calendrier-pacy</button>
+
+  <h2>Étape 3 — Copie</h2>
+  <button id="btn-copier" disabled>3. Copier vers belenos-611bd (organisationId: "pacy")</button>
+
+  <pre id="log"></pre>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+    import {
+      getFirestore, collection, doc, getDoc, getDocs, setDoc
+    } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+    import {
+      getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+
+    const CONFIG_SOURCE = {
+      apiKey:            "AIzaSyCj7etN5gV8CckkOBiFaKn38D_onZCIE2A",
+      authDomain:        "calendrier-pacy.firebaseapp.com",
+      projectId:         "calendrier-pacy",
+      storageBucket:     "calendrier-pacy.firebasestorage.app",
+      messagingSenderId: "767402684897",
+      appId:             "1:767402684897:web:134c456b1de29b2dace2a0"
+    };
+    const CONFIG_DEST = {
+      apiKey:            "AIzaSyAdKgOOKSklOYiud8mC4VSBUUhT1HWNlJ0",
+      authDomain:        "belenos-611bd.firebaseapp.com",
+      projectId:         "belenos-611bd",
+      storageBucket:     "belenos-611bd.firebasestorage.app",
+      messagingSenderId: "503376077615",
+      appId:             "1:503376077615:web:638bac385c2cc3bfa477da"
+    };
+
+    const ORGANISATION_ID = "pacy";
+
+    const appSource = initializeApp(CONFIG_SOURCE, "source");
+    const appDest   = initializeApp(CONFIG_DEST, "dest");
+    const dbSource  = getFirestore(appSource);
+    const dbDest    = getFirestore(appDest);
+    const authSource = getAuth(appSource);
+    const authDest   = getAuth(appDest);
+    const provider = new GoogleAuthProvider();
+
+    const log = (msg) => {
+      document.getElementById("log").textContent += msg + "\n";
+      console.log(msg);
+    };
+
+    let sourcePrete = false, destPrete = false;
+    let apercu = null; // { equipes, secteurs, passages, pins, config, journal }
+
+    function majBoutons() {
+      document.getElementById("btn-preview").disabled = !(sourcePrete && destPrete);
+      document.getElementById("btn-copier").disabled = !(apercu && destPrete);
+    }
+
+    document.getElementById("btn-login-source").onclick = () =>
+      signInWithPopup(authSource, provider).catch(e => log("❌ Erreur connexion source : " + e.message));
+    document.getElementById("btn-login-dest").onclick = () =>
+      signInWithPopup(authDest, provider).catch(e => log("❌ Erreur connexion destination : " + e.message));
+
+    onAuthStateChanged(authSource, (user) => {
+      sourcePrete = !!user;
+      log(user ? `Source (calendrier-pacy) : connecté ${user.email}` : "Source : non connecté");
+      majBoutons();
+    });
+    onAuthStateChanged(authDest, (user) => {
+      destPrete = !!user;
+      log(user ? `Destination (belenos-611bd) : connecté ${user.email}` : "Destination : non connecté");
+      majBoutons();
+    });
+
+    async function lireCollection(nom) {
+      const snap = await getDocs(collection(dbSource, nom));
+      return snap.docs.map(d => ({ id: d.id, data: d.data() }));
+    }
+
+    document.getElementById("btn-preview").onclick = async () => {
+      try {
+        const [equipes, secteurs, passages, pins, journal, configTournee] = await Promise.all([
+          lireCollection("equipes"),
+          lireCollection("secteurs"),
+          lireCollection("passages"),
+          lireCollection("pins"),
+          lireCollection("journal"),
+          getDoc(doc(dbSource, "config", "tournee")).then(s => s.exists() ? { id: s.id, data: s.data() } : null)
+        ]);
+        apercu = { equipes, secteurs, passages, pins, journal, configTournee };
+        log("── Aperçu calendrier-pacy (lecture seule) ──");
+        log(`equipes   : ${equipes.length}`);
+        log(`secteurs  : ${secteurs.length}`);
+        log(`passages  : ${passages.length}`);
+        log(`pins      : ${pins.length}`);
+        log(`journal   : ${journal.length}`);
+        log(`config/tournee : ${configTournee ? "présent" : "absent"}`);
+        majBoutons();
+      } catch (e) {
+        log("❌ Erreur lecture : " + e.message);
+      }
+    };
+
+    document.getElementById("btn-copier").onclick = async () => {
+      if (!apercu) return;
+      try {
+        let n = 0;
+        for (const { id, data } of apercu.equipes) {
+          await setDoc(doc(dbDest, "equipes", id), { ...data, organisationId: data.organisationId || ORGANISATION_ID }, { merge: true });
+          n++;
+        }
+        log(`✅ equipes copiées : ${n}`);
+
+        n = 0;
+        for (const { id, data } of apercu.secteurs) {
+          await setDoc(doc(dbDest, "secteurs", id), { ...data, organisationId: data.organisationId || ORGANISATION_ID }, { merge: true });
+          n++;
+        }
+        log(`✅ secteurs copiés : ${n}`);
+
+        n = 0;
+        for (const { id, data } of apercu.passages) {
+          await setDoc(doc(dbDest, "passages", id), { ...data, organisationId: data.organisationId || ORGANISATION_ID }, { merge: true });
+          n++;
+        }
+        log(`✅ passages copiés : ${n}`);
+
+        // Les pins de calendrier-pacy sont dans l'ancien format (ID = pin nu).
+        // On les re-clé au format "<organisationId>_<pin>" attendu depuis le
+        // chantier multi-tenant point 3 — point de vigilance identifié dès
+        // ce chantier-là.
+        n = 0;
+        for (const { id: pinBrut, data } of apercu.pins) {
+          const cleId = `${ORGANISATION_ID}_${pinBrut}`;
+          await setDoc(doc(dbDest, "pins", cleId), {
+            equipeId: data.equipeId, nom: data.nom || "",
+            organisationId: ORGANISATION_ID, pin: pinBrut
+          }, { merge: true });
+          n++;
+        }
+        log(`✅ pins re-clés et copiés : ${n}`);
+
+        n = 0;
+        for (const { id, data } of apercu.journal) {
+          await setDoc(doc(dbDest, "journal", id), data, { merge: true });
+          n++;
+        }
+        log(`✅ journal copié : ${n}`);
+
+        if (apercu.configTournee) {
+          await setDoc(doc(dbDest, "config", "tournee"), apercu.configTournee.data, { merge: true });
+          log("✅ config/tournee copié");
+        }
+
+        log("── Migration terminée. calendrier-pacy n'a subi aucune écriture. ──");
+      } catch (e) {
+        log("❌ Erreur copie : " + e.message);
+      }
+    };
+  </script>
+</body>
+</html>

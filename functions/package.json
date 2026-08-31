@@ -1,0 +1,11 @@
+{
+  "name": "belenos-functions",
+  "description": "Cloud Functions Belenos — vérification du code équipier (chantier multi-tenant, point 4)",
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.1.0"
+  }
+}
