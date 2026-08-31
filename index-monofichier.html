@@ -3790,7 +3790,17 @@ const ROUTES = {
 };
 
 function naviguer(hash) {
-  window.location.hash = hash;
+  // Si le hash cible est déjà celui de l'URL, le navigateur ne déclenche
+  // aucun évènement "hashchange" (rien ne change dans l'URL) : on rend
+  // la route nous-mêmes pour ne pas rester bloqué sur l'écran courant
+  // (ex. "Changer de caserne" cliqué depuis #dashboard, qui doit se
+  // re-rendre bien que le hash reste #dashboard).
+  if (window.location.hash === hash) {
+    const fn = ROUTES[hash];
+    if (fn) fn(); else renderLogin();
+  } else {
+    window.location.hash = hash;
+  }
 }
 
 window.addEventListener("hashchange", () => {
