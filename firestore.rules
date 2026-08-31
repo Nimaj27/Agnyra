@@ -1,0 +1,37 @@
+// ============================================================
+// firestore.rules — Belenos
+// Chantier multi-tenant, point 1 : collection "organisations"
+// ============================================================
+//
+// Périmètre volontairement restreint à ce chantier :
+//   - organisations : lecture/écriture réservées à un compte admin authentifié
+//   - tout le reste : refusé par défaut
+//
+// Pas de logique de cloisonnement inter-organisations ici (chantier 4).
+// Les règles pour equipes/secteurs/passages/pins/journal/config seront
+// reprises du projet Firebase actuel (calendrier-pacy) au moment de la
+// migration (chantier 6) puis adaptées au cloisonnement (chantier 4).
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estAdmin() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower()));
+    }
+
+    match /organisations/{slug} {
+      allow read, write: if estAdmin();
+    }
+
+    // Refus par défaut pour toute collection non explicitement autorisée
+    // ci-dessus — y compris "admins" elle-même, dont la lecture n'est
+    // nécessaire qu'en interne via exists() plus haut.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

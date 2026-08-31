@@ -41,13 +41,14 @@ try {
 }
 
 const COLLECTIONS = {
-  CONFIG:   "config",
-  EQUIPES:  "equipes",
-  SECTEURS: "secteurs",
-  PASSAGES: "passages",
-  ADMINS:   "admins",
-  PINS:     "pins",     // { pin } → { equipeId } : le code est l'identifiant du document
-  JOURNAL:  "journal"   // traçabilité des corrections et suppressions
+  CONFIG:        "config",
+  EQUIPES:       "equipes",
+  SECTEURS:      "secteurs",
+  PASSAGES:      "passages",
+  ADMINS:        "admins",
+  PINS:          "pins",         // { pin } → { equipeId } : le code est l'identifiant du document
+  JOURNAL:       "journal",      // traçabilité des corrections et suppressions
+  ORGANISATIONS: "organisations" // une caserne par document, le slug (ex. "pacy") sert d'ID
 };
 
 const fsCollection = (name)          => collection(db, name);
@@ -115,6 +116,25 @@ async function loginPin(pin) {
   return equipe || null;
 }
 
+// ── Organisations (chantier multi-tenant, point 1) ──────────────
+// Une organisation = une caserne. Le slug (ex. "pacy") sert d'ID de document :
+// ça permet une lecture directe lors de l'identification par code caserne
+// (chantier 3), sans passer par une requête ("where slug ==").
+// Rattachement des données (secteurs/équipes/passages) : chantier 2.
+// Cloisonnement inter-organisations : chantier 4.
+
+async function creerOrganisation({ slug, nom, couleur, logoBase64 = null, actif = true }) {
+  await setDoc(doc(db, COLLECTIONS.ORGANISATIONS, slug), {
+    slug, nom, couleur, logoBase64, actif,
+    dateCreation: serverTimestamp()
+  });
+}
+
+const obtenirOrganisation = (slug) => fsGet(COLLECTIONS.ORGANISATIONS, slug);
+
+// Réservé aux comptes admin authentifiés — voir les règles Firestore.
+const listerOrganisations = () => fsGetAll(COLLECTIONS.ORGANISATIONS);
+
 const _networkListeners = [];
 let _isOnline = navigator.onLine;
 window.addEventListener("online",  () => { _isOnline = true;  _networkListeners.forEach(cb => cb(true)); });
@@ -132,6 +152,7 @@ export {
   fsGet, fsGetAll, fsQuery, fsListen, fsListenDoc,
   loginGoogle, getLoginRedirect, logoutGoogle, onAuth, isAdmin, loginPin,
   assurerSession, estAnonyme,
+  creerOrganisation, obtenirOrganisation, listerOrganisations,
   where, orderBy, serverTimestamp, increment,
   isOnline, onNetworkChange, enableNetwork, disableNetwork
 };
