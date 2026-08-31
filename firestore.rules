@@ -1,6 +1,6 @@
 // ============================================================
 // firestore.rules — Belenos
-// Chantier multi-tenant, point 4 : cloisonnement (volet admin)
+// Chantier multi-tenant, points 4 (volet admin) et 6 (migration)
 // ============================================================
 //
 // Périmètre de ce fichier à ce stade :
@@ -15,21 +15,26 @@
 //   - admins : un utilisateur connecté peut lire uniquement SON PROPRE
 //     document (nécessaire pour isAdmin()/obtenirOrganisationAdmin()),
 //     pas la collection entière
+//   - equipes/secteurs/passages/pins : lecture/écriture réservées à
+//     l'admin de la caserne concernée (organisationId du document) ou à
+//     un super-admin — nécessaire pour que le script de migration
+//     (scripts/migration-pacy-vers-belenos.html) puisse écrire les
+//     données copiées depuis calendrier-pacy
+//   - config/journal : réservés à un admin authentifié (n'importe lequel :
+//     ces deux collections ne portent pas encore d'organisationId, elles
+//     restent globales pour l'instant — à revoir si elles doivent un jour
+//     être scindées par caserne)
 //   - tout le reste : refusé par défaut
 //
-// Volontairement hors périmètre pour l'instant : le cloisonnement côté
-// équipier (sessions anonymes via code PIN). Une session anonyme ne porte
-// aucune information de caserne dans son jeton d'authentification — un
-// cloisonnement robuste demanderait une Cloud Function qui vérifie le PIN
-// côté serveur et émet un jeton avec organisationId/equipeId en claims.
-// Traité comme prérequis explicite avant d'onboarder une 2e caserne, pas
-// avant : une seule caserne existe aujourd'hui, donc aucune fuite de
-// données inter-organisations n'est possible sur ce point à ce stade.
-//
-// equipes/secteurs/passages/pins/journal/config restent refusés par
-// défaut sur ce projet tant que leurs règles de base n'ont pas été
-// reprises du projet calendrier-pacy (chantier 6) — on ne peut pas
-// "adapter au cloisonnement" des règles qui n'existent pas encore ici.
+// Volontairement hors périmètre pour l'instant : l'accès équipier (sessions
+// anonymes via code PIN) à equipes/secteurs/passages/pins. Une session
+// anonyme ne porte aucune information de caserne dans son jeton
+// d'authentification — un cloisonnement robuste demanderait une Cloud
+// Function qui vérifie le PIN côté serveur et émet un jeton avec
+// organisationId/equipeId en claims (code prêt, voir functions/, non
+// déployé — nécessite le plan Blaze). Tant que ce n'est pas fait, l'écran
+// de connexion équipier de l'app reste inopérant sur ce projet ; seul
+// l'accès admin est câblé ici.
 
 rules_version = '2';
 
@@ -70,6 +75,54 @@ service cloud.firestore {
     match /organisations/{slug} {
       allow read: if request.auth != null;
       allow write: if estSuperAdmin() || (estAdmin() && organisationIdAdmin() == slug);
+    }
+
+    // Admin de la caserne du document (ou super-admin), pour les
+    // collections qui portent un organisationId (chantier multi-tenant,
+    // point 2). Un admin ne voit/modifie que les données de sa caserne.
+    function peutAdministrerOrganisation(orgId) {
+      return estSuperAdmin() || (estAdmin() && organisationIdAdmin() == orgId);
+    }
+
+    // Un admin ne peut ni lire/modifier/supprimer un document d'une autre
+    // caserne, ni en changer l'organisationId lors d'une mise à jour (ce
+    // qui reviendrait à le faire changer de caserne).
+    function accesDocumentOrganisation() {
+      return resource.data.organisationId != null
+        && peutAdministrerOrganisation(resource.data.organisationId);
+    }
+    function miseAJourSansChangerOrganisation() {
+      return accesDocumentOrganisation()
+        && request.resource.data.organisationId == resource.data.organisationId;
+    }
+
+    match /equipes/{id} {
+      allow read, delete: if accesDocumentOrganisation();
+      allow update: if miseAJourSansChangerOrganisation();
+      allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
+    }
+    match /secteurs/{id} {
+      allow read, delete: if accesDocumentOrganisation();
+      allow update: if miseAJourSansChangerOrganisation();
+      allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
+    }
+    match /passages/{id} {
+      allow read, delete: if accesDocumentOrganisation();
+      allow update: if miseAJourSansChangerOrganisation();
+      allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
+    }
+    match /pins/{id} {
+      allow read, delete: if accesDocumentOrganisation();
+      allow update: if miseAJourSansChangerOrganisation();
+      allow create: if peutAdministrerOrganisation(request.resource.data.organisationId);
+    }
+
+    // Pas encore scindés par caserne (voir note en tête de fichier).
+    match /config/{id} {
+      allow read, write: if estAdmin();
+    }
+    match /journal/{id} {
+      allow read, write: if estAdmin();
     }
 
     // Refus par défaut pour toute collection non explicitement autorisée
