@@ -21,12 +21,16 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 import {
   getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged,
-  signInAnonymously
+  signInAnonymously, signInWithCustomToken
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+import {
+  getFunctions, httpsCallable
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-functions.js";
 
 const app  = initializeApp(FIREBASE_CONFIG);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
+const functions = getFunctions(app);
 
 let db;
 try {
@@ -121,19 +125,27 @@ async function obtenirOrganisationAdmin(email) {
 }
 
 // Connexion par code PIN, scopée à une caserne (chantier multi-tenant,
-// point 3 — code caserne saisi explicitement). La clé du document dans
-// /pins combine caserne + PIN ("<organisationId>_<pin>") : deux casernes
-// peuvent donc réutiliser le même code à 4 chiffres. La collection n'est
-// pas énumérable (règle "list" réservée aux administrateurs).
+// point 4 — cloisonnement équipier). Le PIN n'est plus vérifié ni lu
+// côté client : la Cloud Function verifierCodeEquipe le vérifie côté
+// serveur (Admin SDK) et renvoie un jeton d'authentification personnalisé
+// portant organisationId/equipeId en claims — c'est ce que les règles
+// Firestore utilisent pour cloisonner l'équipier à sa caserne, de la
+// même façon qu'elles s'appuient sur l'email pour les admins.
+// Nécessite que la Cloud Function soit déployée (voir functions/) ;
+// jusque-là, cette fonction échoue et l'écran de connexion équipier reste
+// inopérant — c'est attendu tant que le projet n'est pas en plan Blaze.
+const verifierCodeEquipe = httpsCallable(functions, "verifierCodeEquipe");
 async function loginPin(organisationId, pin) {
-  const ref = await fsGet(COLLECTIONS.PINS, `${organisationId}_${pin}`);
-  if (!ref || !ref.equipeId) {
-    // Repli sur l'ancien stockage, le temps que la migration soit faite
-    const legacy = await fsQuery(COLLECTIONS.EQUIPES, where("pin", "==", pin), where("organisationId", "==", organisationId));
-    return legacy.length ? legacy[0] : null;
+  let reponse;
+  try {
+    reponse = await verifierCodeEquipe({ organisationId, pin });
+  } catch (e) {
+    if (e?.code === "functions/not-found") return null;
+    throw e;
   }
-  const equipe = await fsGet(COLLECTIONS.EQUIPES, ref.equipeId);
-  return equipe || null;
+  const { user } = await signInWithCustomToken(auth, reponse.data.customToken);
+  const equipeId = user.uid.replace(/^equipe_/, "");
+  return fsGet(COLLECTIONS.EQUIPES, equipeId);
 }
 
 // ── Organisations (chantier multi-tenant, point 1) ──────────────

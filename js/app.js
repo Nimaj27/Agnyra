@@ -215,8 +215,11 @@ onAuth(async (user) => {
     }
   }
 
-  // ── Session anonyme : c'est un équipier (ou un visiteur sur l'écran de connexion) ──
-  if (user.isAnonymous) {
+  // ── Session anonyme (visiteur pas encore connecté) ou équipier (jeton
+  // personnalisé délivré par la Cloud Function verifierCodeEquipe, chantier
+  // multi-tenant point 4 — l'UID déterministe "equipe_<id>" le distingue
+  // d'une session Google admin, puisqu'il n'est plus anonyme) ──
+  if (user.isAnonymous || user.uid.startsWith("equipe_")) {
     const sessionEquipe = sessionStorage.getItem("equipe");
     if (sessionEquipe) {
       try {
