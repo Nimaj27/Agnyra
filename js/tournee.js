@@ -1,5 +1,5 @@
 // tournee.js — Logique métier tournée calendriers
-import { COLLECTIONS, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetAll, fsQuery, fsListen, where, serverTimestamp } from "./firebase.js";
+import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetAll, fsQuery, fsListen, where, serverTimestamp } from "./firebase.js";
 import { recalculerTotauxSecteur } from "./secteurs.js";
 
 export const STATUT_PASSAGE = { DON:"don", OFFERT:"offert", REFUSE:"refuse", ABSENT:"absent", RELANCE:"relance" };
@@ -12,7 +12,7 @@ export async function creerEquipe({ nom, membres=[], pin }) {
   // L'unicité est structurelle : le PIN est l'identifiant du document
   const pris = await fsGet(COLLECTIONS.PINS, pin);
   if (pris) throw new Error("Ce PIN est déjà utilisé");
-  const ref = await fsAdd(COLLECTIONS.EQUIPES, { nom, membres, actif:true });
+  const ref = await fsAdd(COLLECTIONS.EQUIPES, { organisationId: ORGANISATION_ACTUELLE, nom, membres, actif:true });
   await fsSet(COLLECTIONS.PINS, pin, { equipeId: ref.id, nom });
   return ref;
 }
@@ -74,6 +74,7 @@ export async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, 
   if (statut===STATUT_PASSAGE.DON && montant<=0) throw new Error("Montant requis pour un don");
   // Le statut "offert" ne requiert aucun montant (calendrier donné sans contrepartie)
   const passage = await fsAdd(COLLECTIONS.PASSAGES, {
+    organisationId: ORGANISATION_ACTUELLE,
     secteurId, equipeId, equipeNom, adresse:adresse||"", statut,
     montant: statut===STATUT_PASSAGE.DON ? Number(montant) : 0,
     modePaiement: statut===STATUT_PASSAGE.DON ? modePaiement : null,

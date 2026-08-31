@@ -1478,6 +1478,13 @@ const COLLECTIONS = {
   ORGANISATIONS: "organisations" // une caserne par document, le slug (ex. "pacy") sert d'ID
 };
 
+// Caserne à laquelle rattacher les nouvelles données (chantier multi-tenant,
+// point 2 : secteurs/équipes/passages portent un organisationId).
+// TODO (chantier multi-tenant, point 3) : remplacer cette constante figée par
+// la caserne identifiée à la connexion. Pour l'instant, une seule caserne
+// existe (Pacy-sur-Eure, slug "pacy") donc la valeur reste fixe.
+const ORGANISATION_ACTUELLE = "pacy";
+
 const fsCollection = (name)          => collection(db, name);
 const fsDoc        = (path, ...id)   => doc(db, path, ...id);
 const fsAdd        = (col, data)     => addDoc(collection(db, col), { ...data, createdAt: serverTimestamp() });
@@ -1580,7 +1587,7 @@ const STATUT_LABEL   = { libre:"Non affecté", affecte:"Affecté", en_cours:"En 
 
 async function creerSecteur({ nom, commune, description="", rues=[], couleur="#EF4444", objectifCalendriers=null }) {
   if (!nom || !commune) throw new Error("Nom et commune obligatoires");
-  return fsAdd(COLLECTIONS.SECTEURS, { nom, commune, description, rues, couleur, objectifCalendriers, statut:STATUT_SECTEUR.LIBRE, equipeId:null, equipNom:null, totalCollecte:0, nbFoyersVisites:0, nbFoyersAbsents:0, nbFoyersTotal:0, dateDebut:null, dateFin:null });
+  return fsAdd(COLLECTIONS.SECTEURS, { organisationId: ORGANISATION_ACTUELLE, nom, commune, description, rues, couleur, objectifCalendriers, statut:STATUT_SECTEUR.LIBRE, equipeId:null, equipNom:null, totalCollecte:0, nbFoyersVisites:0, nbFoyersAbsents:0, nbFoyersTotal:0, dateDebut:null, dateFin:null });
 }
 async function mettreAJourSecteur(id, data) { return fsUpdate(COLLECTIONS.SECTEURS, id, data); }
 async function supprimerSecteur(id) { return fsDelete(COLLECTIONS.SECTEURS, id); }
@@ -1818,7 +1825,7 @@ async function creerEquipe({ nom, membres=[], pin }) {
   // L'unicité est structurelle : le PIN est l'identifiant du document
   const pris = await fsGet(COLLECTIONS.PINS, pin);
   if (pris) throw new Error("Ce PIN est déjà utilisé");
-  const ref = await fsAdd(COLLECTIONS.EQUIPES, { nom, membres, actif:true });
+  const ref = await fsAdd(COLLECTIONS.EQUIPES, { organisationId: ORGANISATION_ACTUELLE, nom, membres, actif:true });
   await fsSet(COLLECTIONS.PINS, pin, { equipeId: ref.id, nom });
   return ref;
 }
@@ -1880,6 +1887,7 @@ async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, statut,
   if (statut===STATUT_PASSAGE.DON && montant<=0) throw new Error("Montant requis pour un don");
   // Le statut "offert" ne requiert aucun montant (calendrier donné sans contrepartie)
   const passage = await fsAdd(COLLECTIONS.PASSAGES, {
+    organisationId: ORGANISATION_ACTUELLE,
     secteurId, equipeId, equipeNom, adresse:adresse||"", statut,
     montant: statut===STATUT_PASSAGE.DON ? Number(montant) : 0,
     modePaiement: statut===STATUT_PASSAGE.DON ? modePaiement : null,

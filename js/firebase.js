@@ -51,6 +51,13 @@ const COLLECTIONS = {
   ORGANISATIONS: "organisations" // une caserne par document, le slug (ex. "pacy") sert d'ID
 };
 
+// Caserne à laquelle rattacher les nouvelles données (chantier multi-tenant,
+// point 2 : secteurs/équipes/passages portent un organisationId).
+// TODO (chantier multi-tenant, point 3) : remplacer cette constante figée par
+// la caserne identifiée à la connexion. Pour l'instant, une seule caserne
+// existe (Pacy-sur-Eure, slug "pacy") donc la valeur reste fixe.
+const ORGANISATION_ACTUELLE = "pacy";
+
 const fsCollection = (name)          => collection(db, name);
 const fsDoc        = (path, ...id)   => doc(db, path, ...id);
 const fsAdd        = (col, data)     => addDoc(collection(db, col), { ...data, createdAt: serverTimestamp() });
@@ -147,7 +154,7 @@ function onNetworkChange(cb) {
 
 export {
   db, auth, writeBatch,
-  COLLECTIONS,
+  COLLECTIONS, ORGANISATION_ACTUELLE,
   fsCollection, fsDoc, fsAdd, fsSet, fsUpdate, fsDelete,
   fsGet, fsGetAll, fsQuery, fsListen, fsListenDoc,
   loginGoogle, getLoginRedirect, logoutGoogle, onAuth, isAdmin, loginPin,
