@@ -5,6 +5,9 @@
 //
 // Périmètre volontairement restreint à ce chantier :
 //   - organisations : lecture/écriture réservées à un compte admin authentifié
+//   - admins : un utilisateur connecté peut lire uniquement SON PROPRE
+//     document (nécessaire pour isAdmin(), déjà utilisé partout dans l'app),
+//     pas la collection entière
 //   - tout le reste : refusé par défaut
 //
 // Pas de logique de cloisonnement inter-organisations ici (chantier 4).
@@ -23,13 +26,18 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower()));
     }
 
+    match /admins/{email} {
+      allow read: if request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == email;
+    }
+
     match /organisations/{slug} {
       allow read, write: if estAdmin();
     }
 
     // Refus par défaut pour toute collection non explicitement autorisée
-    // ci-dessus — y compris "admins" elle-même, dont la lecture n'est
-    // nécessaire qu'en interne via exists() plus haut.
+    // ci-dessus.
     match /{document=**} {
       allow read, write: if false;
     }
