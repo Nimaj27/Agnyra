@@ -120,6 +120,16 @@ async function obtenirOrganisationAdmin(email) {
   return snap.data()?.organisationId || ORGANISATION_ACTUELLE;
 }
 
+// Un super-admin gère la plateforme (onboarding de casernes), pas une
+// caserne fixe — il doit la choisir à chaque session (voir
+// afficherChoixCaserneAdmin() dans app.js) plutôt que de se voir imposer
+// le repli "pacy" de obtenirOrganisationAdmin().
+async function estSuperAdminEmail(email) {
+  if (!email) return false;
+  const snap = await getDoc(doc(db, COLLECTIONS.ADMINS, String(email).trim().toLowerCase()));
+  return snap.exists() && snap.data()?.superAdmin === true;
+}
+
 // Connexion par code PIN, scopée à une caserne (chantier multi-tenant,
 // point 3 — code caserne saisi explicitement). La clé du document dans
 // /pins combine caserne + PIN ("<organisationId>_<pin>") : deux casernes
@@ -160,7 +170,9 @@ async function creerOrganisation({ slug, nom, couleur, logoBase64 = null, actif 
 
 const obtenirOrganisation = (slug) => fsGet(COLLECTIONS.ORGANISATIONS, slug);
 
-// Réservé aux comptes admin authentifiés — voir les règles Firestore.
+// Lecture ouverte à toute session authentifiée (y compris anonyme) — voir
+// les règles Firestore. Utilisée par l'écran de connexion équipier pour
+// afficher la grille des casernes actives (chantier multi-tenant, point 3).
 const listerOrganisations = () => fsGetAll(COLLECTIONS.ORGANISATIONS);
 
 // Identification d'une caserne par code saisi à la connexion (chantier
@@ -189,7 +201,7 @@ export {
   fsCollection, fsDoc, fsAdd, fsSet, fsUpdate, fsDelete,
   fsGet, fsGetAll, fsQuery, fsListen, fsListenDoc,
   loginGoogle, getLoginRedirect, logoutGoogle, onAuth, isAdmin, loginPin,
-  obtenirOrganisationAdmin,
+  obtenirOrganisationAdmin, estSuperAdminEmail,
   assurerSession, estAnonyme,
   creerOrganisation, obtenirOrganisation, listerOrganisations, identifierOrganisation,
   where, orderBy, serverTimestamp, increment,

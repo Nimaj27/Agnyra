@@ -194,6 +194,27 @@ body {
 .pin-key--empty { visibility: hidden; }
 .error-msg { color: var(--rouge); font-size: .85rem; text-align: center; margin-top: var(--sp-2); }
 
+/* Grille de choix de caserne (par logo) */
+.caserne-grille {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.caserne-tuile {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-3); border: 1.5px solid var(--gris-bord); border-radius: var(--r-md);
+  background: var(--gris-fond); cursor: pointer; transition: background .15s, border-color .15s;
+  font-family: var(--font); color: var(--ardoise);
+}
+.caserne-tuile:hover, .caserne-tuile:focus-visible { border-color: var(--rouge); background: var(--blanc); }
+.caserne-tuile img, .caserne-tuile .caserne-initiales {
+  width: 56px; height: 56px; border-radius: 50%; object-fit: contain; flex-shrink: 0;
+}
+.caserne-tuile .caserne-initiales {
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 1.1rem; color: var(--blanc);
+}
+.caserne-tuile .caserne-nom { font-size: .78rem; text-align: center; line-height: 1.2; }
+
 /* ── Layout Admin ────────────────────────────────────────────── */
 .admin-layout {
   display: flex; min-height: 100vh;
