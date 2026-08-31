@@ -160,7 +160,9 @@ async function creerOrganisation({ slug, nom, couleur, logoBase64 = null, actif 
 
 const obtenirOrganisation = (slug) => fsGet(COLLECTIONS.ORGANISATIONS, slug);
 
-// Réservé aux comptes admin authentifiés — voir les règles Firestore.
+// Lecture ouverte à toute session authentifiée (y compris anonyme) — voir
+// les règles Firestore. Utilisée par l'écran de connexion équipier pour
+// afficher la grille des casernes actives (chantier multi-tenant, point 3).
 const listerOrganisations = () => fsGetAll(COLLECTIONS.ORGANISATIONS);
 
 // Identification d'une caserne par code saisi à la connexion (chantier

@@ -1,6 +1,6 @@
 import {
   onAuth, loginGoogle, getLoginRedirect, logoutGoogle, loginPin, isAdmin,
-  obtenirOrganisationAdmin, identifierOrganisation,
+  obtenirOrganisationAdmin, listerOrganisations,
   isOnline, onNetworkChange, assurerSession, estAnonyme,
   COLLECTIONS, fsGet, fsSet, fsDelete, fsGetAll, fsListenDoc
 } from "./firebase.js";
@@ -292,10 +292,9 @@ function renderLogin() {
         <!-- Onglet Amicaliste -->
         <div id="tab-equipier" class="tab-panel hidden">
           <div id="etape-caserne">
-            <p class="login-hint">Code de ta caserne.</p>
-            <input id="input-code-caserne" class="input" type="text" placeholder="Ex : PACY" maxlength="20" autocapitalize="characters" autocomplete="off">
-            <button id="btn-valider-caserne" class="btn btn--primary btn--full" style="margin-top:var(--sp-3);">Valider</button>
-            <div id="caserne-error" class="error-msg hidden">Code caserne inconnu</div>
+            <p class="login-hint">Choisis ta caserne.</p>
+            <div id="grille-casernes" class="caserne-grille"></div>
+            <div id="caserne-error" class="error-msg hidden">Impossible de charger les casernes</div>
           </div>
           <div id="etape-pin" class="hidden">
             <p class="login-hint" id="pin-caserne-nom"></p>
@@ -357,7 +356,7 @@ function bindLoginEvents() {
     });
   }
 
-  // Code caserne (chantier multi-tenant, point 3)
+  // Choix de la caserne par logo (chantier multi-tenant, point 3)
   let orgIdentifiee = null;
 
   const etapeCaserne = document.getElementById("etape-caserne");
@@ -375,32 +374,40 @@ function bindLoginEvents() {
     pinSaisi = "";
     etapePin && etapePin.classList.add("hidden");
     etapeCaserne && etapeCaserne.classList.remove("hidden");
-    const input = document.getElementById("input-code-caserne");
-    if (input) input.value = "";
   }
 
-  const btnValiderCaserne = document.getElementById("btn-valider-caserne");
-  const inputCodeCaserne  = document.getElementById("input-code-caserne");
-  async function validerCodeCaserne() {
-    const errEl = document.getElementById("caserne-error");
-    const code = inputCodeCaserne?.value || "";
+  // Initiales de repli tant qu'une caserne n'a pas encore de vrai logo
+  // (logoBase64 null) — dérivées du slug, ex. "saint-andre" → "SA".
+  function initialesCaserne(org) {
+    return (org.slug || org.nom || "?").split(/[-\s]+/).map(m => m[0]).join("").toUpperCase().slice(0, 3);
+  }
+
+  async function afficherGrilleCasernes() {
+    const grille = document.getElementById("grille-casernes");
+    const errEl  = document.getElementById("caserne-error");
+    if (!grille) return;
     errEl && errEl.classList.add("hidden");
-    setLoading(btnValiderCaserne, true);
     try {
-      const org = await identifierOrganisation(code);
-      if (org) {
-        afficherEtapePin(org);
-      } else {
-        errEl && errEl.classList.remove("hidden");
-      }
+      const organisations = (await listerOrganisations()).filter(o => o.actif);
+      grille.innerHTML = organisations.map(org => `
+        <button type="button" class="caserne-tuile" data-slug="${h(org.slug)}">
+          ${org.logoBase64
+            ? `<img src="${org.logoBase64}" alt="">`
+            : `<span class="caserne-initiales" style="background:${h(org.couleur || 'var(--rouge)')}">${initialesCaserne(org)}</span>`}
+          <span class="caserne-nom">${h(org.nom || org.slug)}</span>
+        </button>
+      `).join("");
+      grille.querySelectorAll(".caserne-tuile").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const org = organisations.find(o => o.slug === btn.dataset.slug);
+          if (org) afficherEtapePin(org);
+        });
+      });
     } catch (e) {
-      toast("Erreur : " + e.message, "error");
-    } finally {
-      setLoading(btnValiderCaserne, false);
+      errEl && errEl.classList.remove("hidden");
     }
   }
-  btnValiderCaserne?.addEventListener("click", validerCodeCaserne);
-  inputCodeCaserne?.addEventListener("keydown", (e) => { if (e.key === "Enter") validerCodeCaserne(); });
+  afficherGrilleCasernes();
   document.getElementById("btn-changer-caserne")?.addEventListener("click", afficherEtapeCaserne);
 
   // PIN
