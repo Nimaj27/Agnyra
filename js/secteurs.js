@@ -1,5 +1,5 @@
 // secteurs.js — Gestion des secteurs géographiques
-import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetAll, fsQuery, fsListen, where } from "./firebase.js";
+import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetAllOrg, fsQuery, fsListen, fsListenOrg, where } from "./firebase.js";
 import { COLLECTIONS as C2 } from "./firebase.js";
 
 export const STATUT_SECTEUR = { LIBRE:"libre", AFFECTE:"affecte", EN_COURS:"en_cours", TERMINE:"termine" };
@@ -19,13 +19,13 @@ export async function desaffecterEquipe(secteurId) {
 }
 export async function cloturerSecteur(id) { return fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.TERMINE, dateFin: new Date().toISOString() }); }
 export async function demarrerSecteur(id) { return fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.EN_COURS, dateDebut: new Date().toISOString() }); }
-export async function lireSecteurs() { return fsGetAll(COLLECTIONS.SECTEURS); }
+export async function lireSecteurs() { return fsGetAllOrg(COLLECTIONS.SECTEURS); }
 export async function secteursParEquipe(equipeId) {
   return fsQuery(COLLECTIONS.SECTEURS, where("equipeId", "==", equipeId));
 }
 export async function lireSecteur(id) { return fsGet(COLLECTIONS.SECTEURS, id); }
 export function ecouterSecteurs(callback) {
-  return fsListen(COLLECTIONS.SECTEURS, (secteurs) => {
+  return fsListenOrg(COLLECTIONS.SECTEURS, (secteurs) => {
     secteurs.sort((a, b) => (a.commune + a.nom).localeCompare(b.commune + b.nom));
     callback(secteurs);
   });

@@ -1525,6 +1525,24 @@ const fsListen     = (col, cb, ...constraints) => {
 const fsListenDoc  = (col, id, cb) =>
   onSnapshot(doc(db, col, id), snap => cb(snap.exists() ? { id: snap.id, ...snap.data() } : null));
 
+// ── Caserne courante (chantier multi-tenant) ─────────────────────
+// État partagé, alimenté par app.js à chaque connexion/changement de
+// caserne. Permet à secteurs.js/tournee.js/historique.js de filtrer
+// leurs lectures par organisationId sans dépendre de APP (propre à
+// app.js) ni faire remonter ce paramètre dans des dizaines d'appels.
+let _organisationCourante = null;
+const definirOrganisationCourante = (id) => { _organisationCourante = id; };
+const organisationCourante = () => _organisationCourante;
+
+// Variantes de fsGetAll/fsListen filtrées sur la caserne courante — à
+// utiliser pour toute lecture de secteurs/équipes/passages/pins qui ne
+// serait pas déjà restreinte par un identifiant plus précis (equipeId,
+// secteurId...). Sans ce filtre, changer de caserne dans l'interface ne
+// change rien à ce qui s'affiche : les données de toutes les casernes
+// restent mélangées.
+const fsGetAllOrg  = (col)     => fsQuery(col, where("organisationId", "==", organisationCourante()));
+const fsListenOrg  = (col, cb) => fsListen(col, cb, where("organisationId", "==", organisationCourante()));
+
 // ── Session technique ────────────────────────────────────────
 // Les règles Firestore exigent une session. Les équipiers (code PIN) n'ont
 // pas de compte : on leur ouvre une session anonyme Firebase, ce qui permet
@@ -1663,13 +1681,13 @@ async function desaffecterEquipe(secteurId) {
 }
 async function cloturerSecteur(id) { return fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.TERMINE, dateFin: new Date().toISOString() }); }
 async function demarrerSecteur(id) { return fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.EN_COURS, dateDebut: new Date().toISOString() }); }
-async function lireSecteurs() { return fsGetAll(COLLECTIONS.SECTEURS); }
+async function lireSecteurs() { return fsGetAllOrg(COLLECTIONS.SECTEURS); }
 async function secteursParEquipe(equipeId) {
   return fsQuery(COLLECTIONS.SECTEURS, where("equipeId", "==", equipeId));
 }
 async function lireSecteur(id) { return fsGet(COLLECTIONS.SECTEURS, id); }
 function ecouterSecteurs(callback) {
-  return fsListen(COLLECTIONS.SECTEURS, (secteurs) => {
+  return fsListenOrg(COLLECTIONS.SECTEURS, (secteurs) => {
     secteurs.sort((a, b) => (a.commune + a.nom).localeCompare(b.commune + b.nom));
     callback(secteurs);
   });
@@ -1924,7 +1942,7 @@ async function supprimerEquipe(id) {
 
 // Table { equipeId → pin } — réservée aux administrateurs (règle "list")
 async function lirePins() {
-  const tous = await fsGetAll(COLLECTIONS.PINS);
+  const tous = await fsGetAllOrg(COLLECTIONS.PINS);
   const map = {};
   // p.pin porte le code à 4 chiffres nu ; p.id (la clé "<org>_<pin>") sert
   // de repli pour d'éventuels documents antérieurs à ce champ.
@@ -1934,7 +1952,7 @@ async function lirePins() {
 
 // Migration : déplace les PIN encore stockés dans /equipes vers /pins
 async function migrerPins() {
-  const equipes = await fsGetAll(COLLECTIONS.EQUIPES);
+  const equipes = await fsGetAllOrg(COLLECTIONS.EQUIPES);
   let deplaces = 0, conflits = 0;
   for (const e of equipes) {
     if (!e.pin) continue;
@@ -1948,10 +1966,10 @@ async function migrerPins() {
   }
   return { deplaces, conflits, total: equipes.length };
 }
-async function lireEquipes() { return fsGetAll(COLLECTIONS.EQUIPES); }
+async function lireEquipes() { return fsGetAllOrg(COLLECTIONS.EQUIPES); }
 async function lireEquipe(id) { return fsGet(COLLECTIONS.EQUIPES, id); }
 function ecouterEquipes(callback) {
-  return fsListen(COLLECTIONS.EQUIPES, (equipes) => {
+  return fsListenOrg(COLLECTIONS.EQUIPES, (equipes) => {
     equipes.sort((a,b)=>a.nom.localeCompare(b.nom));
     callback(equipes);
   });
@@ -2011,7 +2029,12 @@ async function passagesDeLEquipe(equipeId) {
   const passages = await fsQuery(COLLECTIONS.PASSAGES, where("equipeId","==",equipeId));
   return passages.sort((a,b)=>(a.datePassage||"").localeCompare(b.datePassage||""));
 }
-async function foyersARelancer() { return fsQuery(COLLECTIONS.PASSAGES, where("aRelancer","==",true)); }
+async function foyersARelancer() {
+  // Filtré côté client plutôt que par une 2e clause where() : évite
+  // d'exiger un index composite (aRelancer + organisationId) sur Firestore.
+  const passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
+  return passages.filter(p => p.aRelancer);
+}
 function ecouterPassagesSecteur(secteurId, callback) {
   return fsListen(COLLECTIONS.PASSAGES, (passages) => {
     passages.sort((a,b)=>(b.datePassage||"").localeCompare(a.datePassage||""));
@@ -2021,7 +2044,7 @@ function ecouterPassagesSecteur(secteurId, callback) {
 
 async function statsGlobalesTournee() {
   const [passages, equipes, secteurs] = await Promise.all([
-    fsGetAll(COLLECTIONS.PASSAGES), fsGetAll(COLLECTIONS.EQUIPES), fsGetAll(COLLECTIONS.SECTEURS)
+    fsGetAllOrg(COLLECTIONS.PASSAGES), fsGetAllOrg(COLLECTIONS.EQUIPES), fsGetAllOrg(COLLECTIONS.SECTEURS)
   ]);
   let totalEspeces=0, totalCheques=0, totalCarte=0, nbDons=0, nbOfferts=0, nbRefus=0, nbAbsents=0, nbRelances=0;
   for (const p of passages) {
@@ -2061,7 +2084,7 @@ function celluleCSV(value) {
 }
 
 async function exporterBilanCSV() {
-  const [passages, secteurs, equipes] = await Promise.all([fsGetAll(COLLECTIONS.PASSAGES), fsGetAll(COLLECTIONS.SECTEURS), fsGetAll(COLLECTIONS.EQUIPES)]);
+  const [passages, secteurs, equipes] = await Promise.all([fsGetAllOrg(COLLECTIONS.PASSAGES), fsGetAllOrg(COLLECTIONS.SECTEURS), fsGetAllOrg(COLLECTIONS.EQUIPES)]);
   const secteurMap = Object.fromEntries(secteurs.map(s=>[s.id,s]));
   const ligne = (...vals) => vals.map(celluleCSV).join(";") + "\n";
   let csv = "BILAN PAR SECTEUR\n" + ligne("Secteur","Commune","Équipe","Statut","Total collecté (€)","Foyers visités","Absents");
@@ -2098,14 +2121,14 @@ function telechargerCSV(csv, filename="bilan-tournee-calendriers.csv") {
 // Les secteurs et les équipes sont conservés ; seuls les passages sont
 // supprimés et les totaux des secteurs remis à zéro.
 async function effacerTousLesPassages() {
-  const passages = await fsGetAll(COLLECTIONS.PASSAGES);
+  const passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
   let supprimes = 0, erreurs = 0;
   for (const p of passages) {
     try { await fsDelete(COLLECTIONS.PASSAGES, p.id); supprimes++; }
     catch(e) { erreurs++; }
   }
   // Remettre à zéro les compteurs de chaque secteur
-  const secteurs = await fsGetAll(COLLECTIONS.SECTEURS);
+  const secteurs = await fsGetAllOrg(COLLECTIONS.SECTEURS);
   for (const s of secteurs) {
     try {
       await fsUpdate(COLLECTIONS.SECTEURS, s.id, {
@@ -2448,7 +2471,7 @@ async function archiverSaison(annee) {
   const [secteurs, equipes, stats] = await Promise.all([lireSecteurs(), lireEquipes(), statsGlobalesTournee()]);
 
   // Détail par adresse : ce que chaque foyer a donné cette année-là
-  const passages = await fsGetAll(COLLECTIONS.PASSAGES);
+  const passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
   const secteurNom = Object.fromEntries(secteurs.map(s => [s.id, s.nom]));
   const adresses = {};
   for (const p of passages) {
@@ -2507,7 +2530,10 @@ async function archiverSaison(annee) {
 
 async function reinitialiserSaison() {
   const collections = [COLLECTIONS.SECTEURS, COLLECTIONS.EQUIPES, COLLECTIONS.PASSAGES, COLLECTIONS.PINS];
-  const snaps = await Promise.all(collections.map(c => getDocs(collection(db, c))));
+  const orgId = organisationCourante();
+  const snaps = await Promise.all(collections.map(c =>
+    getDocs(query(collection(db, c), where("organisationId", "==", orgId)))
+  ));
   const refs = snaps.flatMap(s => s.docs.map(d => d.ref));
   return supprimerRefsParLots(refs);
 }
@@ -3687,11 +3713,22 @@ window.APP = {
   user:      null,   // objet Firebase Auth (admin) ou objet équipe (equipier)
   equipeId:  null,
   equipeNom: null,
-  organisationId: null, // caserne identifiée à la connexion (chantier multi-tenant, point 3)
-  estSuperAdmin: false, // gère plusieurs casernes, choisit laquelle administrer par session
+  organisationId: null,  // caserne identifiée à la connexion (chantier multi-tenant, point 3)
+  organisationNom: null, // nom affiché de cette caserne (barre latérale admin)
+  estSuperAdmin: false,  // gère plusieurs casernes, choisit laquelle administrer par session
   // Désabonnements Firestore temps réel
   unsubs: []
 };
+
+// Point de passage unique pour changer la caserne courante : tient
+// APP.organisationId et l'état partagé de firebase.js (utilisé par
+// fsGetAllOrg/fsListenOrg dans secteurs.js/tournee.js/historique.js) en
+// phase — sans ça, changer de caserne ne changerait rien à ce qui
+// s'affiche, les lectures resteraient mélangées entre casernes.
+function definirOrganisationApp(id) {
+  APP.organisationId = id;
+  definirOrganisationCourante(id);
+}
 
 // ── Utilitaires DOM ───────────────────────────────────────────
 const $  = (sel, ctx = document) => ctx.querySelector(sel);
@@ -3850,7 +3887,7 @@ onAuth(async (user) => {
         APP.user = eq;
         APP.equipeId  = eq.id;
         APP.equipeNom = eq.nom;
-        APP.organisationId = eq.organisationId || null;
+        definirOrganisationApp(eq.organisationId || null);
         APP.membre    = sessionStorage.getItem("membre") || null;
         naviguer("#terrain");
         return;
@@ -4080,7 +4117,7 @@ function bindLoginEvents() {
             APP.user = equipe;
             APP.equipeId  = equipe.id;
             APP.equipeNom = equipe.nom;
-            APP.organisationId = equipe.organisationId || orgIdentifiee.slug;
+            definirOrganisationApp(equipe.organisationId || orgIdentifiee.slug);
             sessionStorage.setItem("equipe", JSON.stringify(equipe));
             // Si l'équipe a plusieurs membres, demander qui se connecte
             const membres = (equipe.membres || []).filter(Boolean);
@@ -4140,8 +4177,10 @@ function afficherChoixCaserneAdmin() {
       grille.innerHTML = organisations.map(rendreTuileCaserne).join("");
       grille.querySelectorAll(".caserne-tuile").forEach(btn => {
         btn.addEventListener("click", () => {
+          const org = organisations.find(o => o.slug === btn.dataset.slug);
           sessionStorage.setItem("adminOrganisationId", btn.dataset.slug);
-          APP.organisationId = btn.dataset.slug;
+          definirOrganisationApp(btn.dataset.slug);
+          APP.organisationNom = org?.nom || null;
           demarrerPlanificateurResume();
           naviguer("#dashboard");
         });
@@ -4160,11 +4199,16 @@ function afficherChoixCaserneAdmin() {
 async function resoudreOrganisationAdmin(email) {
   APP.estSuperAdmin = await estSuperAdminEmail(email);
   if (!APP.estSuperAdmin) {
-    APP.organisationId = await obtenirOrganisationAdmin(email);
+    definirOrganisationApp(await obtenirOrganisationAdmin(email));
+    APP.organisationNom = (await obtenirOrganisation(APP.organisationId))?.nom || null;
     return true;
   }
   const orgSauvee = sessionStorage.getItem("adminOrganisationId");
-  if (orgSauvee) { APP.organisationId = orgSauvee; return true; }
+  if (orgSauvee) {
+    definirOrganisationApp(orgSauvee);
+    APP.organisationNom = (await obtenirOrganisation(orgSauvee))?.nom || null;
+    return true;
+  }
   afficherChoixCaserneAdmin();
   return false;
 }
@@ -4262,13 +4306,13 @@ function layoutAdmin(activeHash, content) {
     <div class="admin-layout">
       <header class="mobile-topbar">
         <button id="btn-menu-toggle" class="btn-hamburger" aria-label="Menu">☰</button>
-        <span class="mobile-topbar-title">Amicale SP Pacy</span>
+        <span class="mobile-topbar-title">${h(APP.organisationNom || 'Amicale')}</span>
       </header>
       <div id="sidebar-overlay" class="sidebar-overlay hidden"></div>
       <nav class="sidebar" id="sidebar">
         <div class="sidebar-brand">
           <img src="${LOGO_CASERNE_ACTUELLE}" alt="Logo de la caserne" style="width:36px;height:36px;object-fit:contain;border-radius:50%;flex-shrink:0;">
-          <span class="sidebar-title">Amicale SP Pacy<br><small>Tournée Calendriers</small></span>
+          <span class="sidebar-title">${h(APP.organisationNom || 'Amicale')}<br><small>Tournée Calendriers</small></span>
         </div>
         <ul class="sidebar-nav">
           ${nav.map(n => `
@@ -4304,7 +4348,8 @@ function bindLogout() {
     sessionStorage.removeItem("equipe");
     sessionStorage.removeItem("membre");
     sessionStorage.removeItem("adminOrganisationId");
-    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.organisationId = null; APP.estSuperAdmin = false;
+    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.estSuperAdmin = false; APP.organisationNom = null;
+    definirOrganisationApp(null);
     try { await assurerSession(); } catch(e) {}   // garder une session pour l'accès PIN
     naviguer("#login");
   });
@@ -4405,7 +4450,7 @@ async function renderDashboard() {
       const [stats, secteurs, passages, config] = await Promise.all([
         statsGlobalesTournee(),
         lireSecteurs(),
-        fsGetAll(COLLECTIONS.PASSAGES),
+        fsGetAllOrg(COLLECTIONS.PASSAGES),
         lireConfig()
       ]);
       await telechargerBilanPDF({ stats, secteurs, passages, logoBase64: LOGO_CASERNE_ACTUELLE, config: config || {} });
@@ -4421,7 +4466,7 @@ async function renderDashboard() {
     const [stats, secteursActuels, passagesActuels] = await Promise.all([
       statsGlobalesTournee(),
       lireSecteurs(),
-      fsGetAll(COLLECTIONS.PASSAGES)
+      fsGetAllOrg(COLLECTIONS.PASSAGES)
     ]);
     const badgesParEquipe = calculerBadges(stats.parEquipe, secteursActuels, passagesActuels);
 
@@ -5317,7 +5362,7 @@ async function renderPassages() {
     if (secteurId) {
       passages = await passagesDuSecteur(secteurId);
     } else {
-      passages = await fsGetAll(COLLECTIONS.PASSAGES);
+      passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
       passages.sort((a,b) => (b.datePassage || "").localeCompare(a.datePassage || ""));
     }
     renderPassagesList(passages, secteurs);
@@ -5929,7 +5974,7 @@ async function renderStatistiques() {
 
   try {
     const [passages, secteurs] = await Promise.all([
-      fsGetAll(COLLECTIONS.PASSAGES),
+      fsGetAllOrg(COLLECTIONS.PASSAGES),
       lireSecteurs()
     ]);
     const el = document.getElementById("stats-content");
@@ -6437,7 +6482,7 @@ async function renderConfig() {
     const el = document.getElementById("effacer-etat");
     if (!el) return;
     try {
-      const p = await fsGetAll(COLLECTIONS.PASSAGES);
+      const p = await fsGetAllOrg(COLLECTIONS.PASSAGES);
       if (p.length === 0) {
         el.className = "notif-etat notif-etat--on";
         el.textContent = "Aucun passage enregistré, rien à effacer.";
@@ -6459,7 +6504,7 @@ async function renderConfig() {
   })();
 
   document.getElementById("btn-effacer-passages")?.addEventListener("click", async () => {
-    const passages = await fsGetAll(COLLECTIONS.PASSAGES);
+    const passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
     if (passages.length === 0) { toast("Aucun passage à effacer", "info"); return; }
 
     const montant = passages.filter(x => x.statut === "don")
@@ -6505,9 +6550,9 @@ async function renderConfig() {
     setLoading(btn, true);
     try {
       const [secteurs, equipes, passages, saisons, cfg] = await Promise.all([
-        fsGetAll(COLLECTIONS.SECTEURS),
-        fsGetAll(COLLECTIONS.EQUIPES),
-        fsGetAll(COLLECTIONS.PASSAGES),
+        fsGetAllOrg(COLLECTIONS.SECTEURS),
+        fsGetAllOrg(COLLECTIONS.EQUIPES),
+        fsGetAllOrg(COLLECTIONS.PASSAGES),
         exporterHistoriqueComplet(),
         lireConfig()
       ]);
@@ -6595,7 +6640,8 @@ async function renderTerrain() {
     stopUnsubs();
     sessionStorage.removeItem("equipe");
     sessionStorage.removeItem("membre");
-    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.organisationId = null;
+    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null;
+    definirOrganisationApp(null);
     APP._rueActive = null;
     naviguer("#login");
   });
@@ -7346,7 +7392,7 @@ window.fermerCorrection = () => {
 async function chargerDonneesResume() {
   const [stats, passages] = await Promise.all([
     statsGlobalesTournee(),
-    fsGetAll(COLLECTIONS.PASSAGES)
+    fsGetAllOrg(COLLECTIONS.PASSAGES)
   ]);
   return { stats, passages };
 }
@@ -8293,7 +8339,7 @@ async function renderClassement() {
 
   async function refresh() {
     const [stats, secteurs, passages] = await Promise.all([
-      statsGlobalesTournee(), lireSecteurs(), fsGetAll(COLLECTIONS.PASSAGES)
+      statsGlobalesTournee(), lireSecteurs(), fsGetAllOrg(COLLECTIONS.PASSAGES)
     ]);
     const content = document.getElementById("classement-content");
     if (!content) return;
