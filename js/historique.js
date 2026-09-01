@@ -1,5 +1,5 @@
 // historique.js — Historique multi-années
-import { COLLECTIONS, fsSet, fsGet, fsGetAll, fsGetAllOrg, fsDelete, db, writeBatch, organisationCourante } from "./firebase.js";
+import { COLLECTIONS, fsSet, fsGet, fsGetAllOrg, fsDelete, db, writeBatch, organisationCourante } from "./firebase.js";
 import { collection, doc, getDocs, setDoc, deleteDoc, query, where } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 import { lireSecteurs } from "./secteurs.js";
 import { lireEquipes, statsGlobalesTournee } from "./tournee.js";
@@ -8,6 +8,13 @@ const COLLECTION_HISTORIQUE = "historique_saisons";
 const SOUS_COLLECTION_ADRESSES = "adresses_chunks";
 const TAILLE_CHUNK_ADRESSES = 300;
 const TAILLE_BATCH_SUPPRESSION = 400; // marge sous la limite Firestore de 500 opérations
+
+// Un archivage est identifié par année + caserne : sans ça, Pacy et Ezy
+// archivant tous les deux "2026" écraseraient le même document
+// (chantier multi-tenant). Les archives antérieures à ce correctif,
+// stockées sous l'année seule ("2026"), devront être re-clées vers
+// "pacy_2026" au moment de la migration complète de calendrier-pacy.
+function cleSaison(annee) { return `${organisationCourante()}_${annee}`; }
 
 // Normalisation d'adresse, commune à l'archivage et à la consultation
 export function normAdresse(s) {
@@ -28,12 +35,12 @@ async function supprimerRefsParLots(refs) {
 }
 
 async function supprimerChunksAdresse(annee) {
-  const snap = await getDocs(collection(db, COLLECTION_HISTORIQUE, String(annee), SOUS_COLLECTION_ADRESSES));
+  const snap = await getDocs(collection(db, COLLECTION_HISTORIQUE, cleSaison(annee), SOUS_COLLECTION_ADRESSES));
   return supprimerRefsParLots(snap.docs.map(d => d.ref));
 }
 
 async function lireChunksAdresse(annee) {
-  const snap = await getDocs(collection(db, COLLECTION_HISTORIQUE, String(annee), SOUS_COLLECTION_ADRESSES));
+  const snap = await getDocs(collection(db, COLLECTION_HISTORIQUE, cleSaison(annee), SOUS_COLLECTION_ADRESSES));
   const adresses = {};
   for (const d of snap.docs) {
     const donnees = d.data()?.adresses || {};
@@ -72,6 +79,7 @@ export async function archiverSaison(annee) {
   const nbChunks = Math.ceil(entrees.length / TAILLE_CHUNK_ADRESSES);
   const snapshot = {
     annee: Number(annee),
+    organisationId: organisationCourante(),
     dateArchivage: new Date().toISOString(),
     totalCollecte: stats.totalCollecte,
     totalEspeces: stats.totalEspeces,
@@ -93,13 +101,13 @@ export async function archiverSaison(annee) {
   };
 
   // Écrire d'abord le résumé puis les chunks. Un ancien archivage de la même année
-  // est nettoyé pour éviter de conserver des chunks obsolètes.
-  await fsSet(COLLECTION_HISTORIQUE, String(annee), snapshot);
+  // (pour cette caserne) est nettoyé pour éviter de conserver des chunks obsolètes.
+  await fsSet(COLLECTION_HISTORIQUE, cleSaison(annee), snapshot);
   await supprimerChunksAdresse(annee);
   for (let i = 0; i < entrees.length; i += TAILLE_CHUNK_ADRESSES) {
     const chunk = Object.fromEntries(entrees.slice(i, i + TAILLE_CHUNK_ADRESSES));
     const id = `chunk-${String(Math.floor(i / TAILLE_CHUNK_ADRESSES) + 1).padStart(4, '0')}`;
-    await setDoc(doc(db, COLLECTION_HISTORIQUE, String(annee), SOUS_COLLECTION_ADRESSES, id), { adresses: chunk });
+    await setDoc(doc(db, COLLECTION_HISTORIQUE, cleSaison(annee), SOUS_COLLECTION_ADRESSES, id), { adresses: chunk });
   }
   return { ...snapshot, adresses };
 }
@@ -114,21 +122,21 @@ export async function reinitialiserSaison() {
   return supprimerRefsParLots(refs);
 }
 
-export async function lireSaison(annee) { return fsGet(COLLECTION_HISTORIQUE, String(annee)); }
+export async function lireSaison(annee) { return fsGet(COLLECTION_HISTORIQUE, cleSaison(annee)); }
 export async function lireToutesLesSaisons() {
-  const saisons = await fsGetAll(COLLECTION_HISTORIQUE);
+  const saisons = await fsGetAllOrg(COLLECTION_HISTORIQUE);
   return saisons.sort((a, b) => b.annee - a.annee);
 }
 export async function saisirSaisonManuelle({ annee, totalCollecte, totalEspeces=0, totalCheques=0, totalCarte=0, nbDons=0, nbPassages=0, secteurs=[], note="" }) {
   if (!annee || !/^\d{4}$/.test(String(annee))) throw new Error("Année invalide");
-  const snapshot = { annee:Number(annee), dateArchivage:new Date().toISOString(), saisieManuelle:true, note, totalCollecte:Number(totalCollecte)||0, totalEspeces:Number(totalEspeces)||0, totalCheques:Number(totalCheques)||0, totalCarte:Number(totalCarte)||0, nbDons:Number(nbDons)||0, nbPassages:Number(nbPassages)||0, nbSecteursTotal:secteurs.length, nbSecteursTermines:secteurs.length, secteurs:secteurs.map(s=>({nom:s.nom||"",commune:s.commune||"",equipeNom:s.equipeNom||null,totalCollecte:Number(s.totalCollecte)||0,nbFoyersVisites:0,nbFoyersAbsents:0,statut:"termine"})), equipes:[] };
+  const snapshot = { annee:Number(annee), organisationId: organisationCourante(), dateArchivage:new Date().toISOString(), saisieManuelle:true, note, totalCollecte:Number(totalCollecte)||0, totalEspeces:Number(totalEspeces)||0, totalCheques:Number(totalCheques)||0, totalCarte:Number(totalCarte)||0, nbDons:Number(nbDons)||0, nbPassages:Number(nbPassages)||0, nbSecteursTotal:secteurs.length, nbSecteursTermines:secteurs.length, secteurs:secteurs.map(s=>({nom:s.nom||"",commune:s.commune||"",equipeNom:s.equipeNom||null,totalCollecte:Number(s.totalCollecte)||0,nbFoyersVisites:0,nbFoyersAbsents:0,statut:"termine"})), equipes:[] };
   await supprimerChunksAdresse(annee);
-  await fsSet(COLLECTION_HISTORIQUE, String(annee), snapshot);
+  await fsSet(COLLECTION_HISTORIQUE, cleSaison(annee), snapshot);
   return snapshot;
 }
 export async function supprimerSaison(annee) {
   await supprimerChunksAdresse(annee);
-  return fsDelete(COLLECTION_HISTORIQUE, String(annee));
+  return fsDelete(COLLECTION_HISTORIQUE, cleSaison(annee));
 }
 export function comparerSaisons(a, b) {
   if (!a || !b) return null;

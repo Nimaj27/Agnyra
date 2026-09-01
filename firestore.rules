@@ -127,6 +127,23 @@ service cloud.firestore {
       allow delete: if accesDocumentOrganisation();
     }
 
+    // Historique des saisons archivées : admin uniquement (pas d'usage
+    // équipier). Contrairement à equipes/secteurs/passages/pins, "list"
+    // est cloisonné dès maintenant : le seul point de lecture côté
+    // client (lireToutesLesSaisons) filtre déjà par organisationId
+    // (fsGetAllOrg), donc la règle peut s'appuyer sur ce champ sans se
+    // heurter à la limitation Firestore sur les requêtes de liste.
+    match /historique_saisons/{id} {
+      allow get, list, delete: if accesDocumentOrganisation();
+      allow create, update: if peutAdministrerOrganisation(request.resource.data.organisationId);
+
+      match /adresses_chunks/{chunkId} {
+        allow read, write: if peutAdministrerOrganisation(
+          get(/databases/$(database)/documents/historique_saisons/$(id)).data.organisationId
+        );
+      }
+    }
+
     // Pas encore scindés par caserne (voir note en tête de fichier).
     match /config/{id} {
       allow read, write: if estAdmin();
