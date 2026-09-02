@@ -1,9 +1,9 @@
 // ============================================================
 // Service Worker — V3 production
-// Belenos — Gestion de tournée de calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
-const VERSION       = "v3-3";
+const VERSION       = "v3-4";
 const CACHE_APP     = `sp-app-${VERSION}`;
 const CACHE_STATIC  = "sp-static-3";
 const CACHE_RUNTIME = "sp-runtime-v1";

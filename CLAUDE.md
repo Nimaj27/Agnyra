@@ -1,87 +1,190 @@
-# Belenos — Contexte du projet
+# Agnyra — Contexte du projet
 
 ## Qu'est-ce que c'est
 
-Belenos est une refonte multi-tenant de l'application de gestion de tournée de
+Agnyra est une refonte multi-tenant de l'application de gestion de tournée de
 calendriers utilisée par les amicales de sapeurs-pompiers volontaires en
 France. Elle est dérivée du code d'une application mono-tenant déjà en
 production pour l'Amicale des Sapeurs-Pompiers de Pacy-sur-Eure.
-
-Le nom référence Belenos, divinité gauloise du feu et du soleil, dont le
-culte est attesté sur le sol français.
 
 **Objectif final** : un seul site, une seule base Firebase, plusieurs
 casernes cloisonnées par organisation (au lieu d'une installation séparée
 par caserne comme aujourd'hui).
 
+## Identité de marque
+
+### Le nom
+
+**AGNYRA** est un nom créé autour de la racine **Agni**, divinité du feu dans
+la tradition védique. Le feu constitue le point de départ symbolique de
+l'identité de l'application : il fait écho à l'univers des sapeurs-pompiers,
+tout en représentant la transmission, la tradition et le lien entre les
+personnes. Le nom a volontairement été adapté pour obtenir une identité
+moderne et distinctive, adaptée à une application numérique.
+
+### Le logo
+
+Trois éléments principaux :
+- **Le casque de sapeur-pompier** — protection, engagement, identité des
+  femmes et des hommes auxquels l'application est destinée.
+- **La flamme rouge** — rappelle l'origine du nom, symbolise le feu,
+  l'énergie et la tradition des sapeurs-pompiers.
+- **Le calendrier** — la fonction première de l'application : organiser et
+  suivre les campagnes de calendriers, les tournées et leur gestion.
+
+### Les couleurs
+
+- **Rouge** : le feu, l'action, l'univers des sapeurs-pompiers.
+- **Anthracite** : la fiabilité, la sobriété, le professionnalisme.
+- **Blanc** : la simplicité, la lisibilité, la modernité.
+
+### Accroche
+
+> **AGNYRA — Pilotez vos campagnes calendriers.**
+
+### Statut au 01/09/2026
+
+Le renommage **Belenos → Agnyra** a été fait dans tout le code, les textes et
+la configuration (voir liste de fichiers dans "Historique des chantiers"
+ci-dessous). **Le nouveau logo n'a pas encore été fourni** : `LOGO_AGNYRA`
+dans `js/app.js` et les 15 icônes de `icons/` affichent encore l'ancien
+visuel (roue solaire Belenos) en attendant le fichier définitif — à remplacer
+dès qu'il est disponible, sans quoi c'est le seul écart entre le nom affiché
+et le logo réellement affiché.
+
 ## Décisions déjà prises (ne pas remettre en question sans discussion)
 
 - **Architecture** : multi-tenant single-site, isolation des données par
   `organisationId` dans Firestore (pas d'instance séparée par caserne).
-- **Logo** : roue solaire blanche à huit rayons se terminant en flammes,
-  sur fond rouge. Généré dans toutes les tailles nécessaires (`icons/`).
 - **Logique de marque** :
-  - Le logo **Belenos** s'affiche sur l'écran de connexion, fixe, comme
+  - Le logo **Agnyra** s'affiche sur l'écran de connexion, fixe, comme
     identité du produit (indépendant de la caserne).
   - Une fois connecté, chaque utilisateur voit le logo **de sa caserne**
     (choix du membre, sidebar admin, exports PDF, fiches, notifications).
 - **Migration** : les données de production actuelles (une seule caserne,
-  Pacy-sur-Eure) seront migrées vers une `organisation Pacy` au moment du
-  basculement en prod.
+  Pacy-sur-Eure) ont été copiées vers `belenos-611bd` avec `organisationId:
+  "pacy"` (voir chantier 6) ; `calendrier-pacy` reste l'unique source de
+  vérité utilisée par les vrais équipiers tant que le cutover n'est pas
+  décidé.
+- **Projet Firebase de développement/test** : `belenos-611bd`, distinct du
+  projet de production `calendrier-pacy`. Le nom du projet Firebase n'a pas
+  été renommé suite au rebranding Agnyra (renommer un projet Firebase
+  existant n'est pas trivial) — c'est un identifiant technique, sans
+  visibilité utilisateur.
 
 ## Les six chantiers du multi-tenant
 
-1. **Collection `organisations`** (nom, logo, couleur par caserne) — *à faire*
-2. **Rattacher `secteurs` / `équipes` / `passages` à un `organisationId`** — *à faire*
-3. **Identification de la caserne à la connexion** (PIN global ou code
-   caserne) — *à faire*
+1. **Collection `organisations`** (nom, logo, couleur par caserne) —
+   ✅ **fait**. `creerOrganisation`/`obtenirOrganisation`/`listerOrganisations`
+   dans `js/firebase.js`. 3 casernes créées : `pacy`, `ezy`, `saint-andre`.
+2. **Rattacher `secteurs` / `équipes` / `passages` à un `organisationId`** —
+   ✅ **fait**, câblé de bout en bout (pas juste tagué à la création : les
+   lectures sont filtrées par caserne courante via `fsGetAllOrg`/
+   `fsListenOrg`, voir "Cloisonnement des lectures" ci-dessous).
+3. **Identification de la caserne à la connexion** — ✅ **fait**. Décision
+   tranchée : code caserne explicite (pas de PIN global). Équipier et admin
+   choisissent leur caserne via une **grille de logos** cliquables
+   (`rendreTuileCaserne`, alimentée par `listerOrganisations()`). Un
+   super-admin (voir plus bas) choisit sa caserne à chaque session ; un
+   admin de caserne classique n'a rien à choisir (`organisationId` fixé sur
+   son document `admins/{email}`).
 4. **Règles de sécurité Firestore cloisonnant les données par organisation**
-   — *à faire, chantier le plus sensible, à tester à fond avant toute prod*
-5. **Bascule de logo (Belenos → logo caserne) après connexion** — ✅ **fait**
-   (voir détail ci-dessous)
-6. **Migration des données Pacy vers une organisation "Pacy"** — *à faire,
-   au moment du cutover*
+   — ⚠️ **fait côté admin, volontairement ouvert côté équipier**.
+   - Admin : un admin ne lit/écrit que les données de sa caserne
+     (`peutAdministrerOrganisation()` dans `firestore.rules`), avec un rôle
+     **super-admin** (`superAdmin:true` sur `admins/{email}`) qui peut
+     créer/gérer n'importe quelle caserne.
+   - Équipier (session Firebase anonyme via code PIN) : **accès ouvert sans
+     vérification de caserne** sur `equipes`/`secteurs`/`passages`/`pins`
+     (get/list/create/update). Une session anonyme ne porte aucune info de
+     caserne dans son jeton — un cloisonnement robuste demande une **Cloud
+     Function** qui vérifie le PIN côté serveur et délivre un jeton avec
+     `organisationId`/`equipeId` en claims. Le code de cette fonction existe
+     (`functions/verifierCodeEquipe`) mais n'est **pas déployé** : ça exige
+     le plan Blaze (payant, même si l'usage réel resterait gratuit), écarté
+     tant qu'une seule caserne est réellement active. **À refermer avant
+     d'onboarder une vraie 2ᵉ caserne active** (voir marqueur ⚠️ dans
+     `firestore.rules`).
+   - `historique_saisons` fait exception : cloisonné dès le départ, sans
+     compromis (voir chantier archivage plus bas).
+5. **Bascule de logo (Agnyra → logo caserne) après connexion** —
+   ✅ **fait** (voir détail ci-dessous).
+6. **Migration des données Pacy vers une organisation "Pacy"** —
+   ✅ **fait pour `equipes`/`secteurs`/`passages`/`pins`/`journal`/`config`**
+   (script `scripts/migration-pacy-vers-belenos.html`, lecture seule sur
+   `calendrier-pacy`, écriture vers `belenos-611bd`, ID préservés, pins
+   re-clés au format `<organisationId>_<pin>`). **`historique_saisons` n'a
+   pas été migré.** Ceci reste une préparation/test : `calendrier-pacy`
+   continue de servir les vrais équipiers, aucun cutover réel n'a eu lieu.
 
-L'ordre de traitement retenu : commencer par le point 5 (le plus visible,
-le moins risqué), puis attaquer les points 1 à 4 dans l'ordre, le point 4
-demandant le plus de prudence.
+Chantiers encore ouverts, chacun avec une condition de déclenchement claire
+(pas de raison de s'y attaquer avant) :
+- **Cloud Function équipier** : avant d'onboarder une vraie 2ᵉ caserne active
+  en parallèle de Pacy.
+- **Cutover réel** (rebrancher l'app utilisée par les vrais équipiers sur
+  `belenos-611bd`) : décision produit séparée, hors du scope de ce dépôt de
+  code.
+- **Migration de `historique_saisons`** : au moment où ce cutover est décidé.
+
+## Cloisonnement des lectures (au-delà des règles Firestore)
+
+Point distinct des règles de sécurité : même quand les règles autorisent un
+accès, le code lui-même doit filtrer par caserne pour que changer de caserne
+change ce qui s'affiche. `APP.organisationId` (dans `app.js`) ne suffit pas
+à lui seul — un état miroir `organisationCourante()` dans `js/firebase.js`
+(mis à jour via `definirOrganisationApp()`) permet à `secteurs.js`/
+`tournee.js`/`historique.js` de filtrer leurs lectures sans dépendre de
+`APP` :
+- `fsGetAllOrg(col)` / `fsListenOrg(col, cb)` : variantes de
+  `fsGetAll`/`fsListen` filtrées sur la caserne courante.
+- Utilisées partout où l'app lisait une collection entière sans filtre
+  (tableau de bord, classement, statistiques, export CSV/PDF).
+- **Deux bugs de sécurité des données trouvés et corrigés** en construisant
+  ce filtrage : `effacerTousLesPassages()` et `reinitialiserSaison()`
+  supprimaient des données de **toutes** les casernes, pas seulement celle
+  de l'admin connecté.
+- Requêtes déjà scopées par une clé plus précise (`equipeId`, `secteurId`)
+  laissées telles quelles — pas de fuite possible, une équipe/secteur
+  appartient déjà à une seule caserne par construction.
 
 ## État détaillé du chantier 5 (fait)
 
 Dans `js/app.js` :
-- `const LOGO_BELENOS` — logo produit fixe (roue solaire), utilisé
-  **uniquement** dans `renderLogin()`.
-- `const LOGO_CASERNE_ACTUELLE` (renommage de l'ancien `LOGO_SP`) — logo de
-  la caserne connectée, utilisé partout après authentification : choix du
-  membre (`afficherChoixMembre`), sidebar admin (`layoutAdmin`), export PDF
-  (`pdf.js` / `logoBase64`), fiche secteur, notifications de résumé
-  quotidien.
-- **TODO explicite dans le code** : `LOGO_CASERNE_ACTUELLE` est pour
-  l'instant une valeur figée (le logo Pacy). Elle devra être remplacée par
-  une valeur chargée dynamiquement depuis la collection `organisations`
-  quand le chantier 1 sera fait.
+- `const LOGO_AGNYRA` (ex-`LOGO_BELENOS`) — logo produit fixe, utilisé
+  **uniquement** dans `renderLogin()` et `afficherChoixCaserneAdmin()`.
+- `const LOGO_CASERNE_ACTUELLE` — logo de la caserne connectée, utilisé
+  partout après authentification : choix du membre (`afficherChoixMembre`),
+  sidebar admin (`layoutAdmin`), export PDF (`pdf.js` / `logoBase64`), fiche
+  secteur, notifications de résumé quotidien.
+- **Reste une valeur figée** (le logo Pacy) malgré les chantiers 1-3 faits —
+  la rendre dynamique par caserne (lue depuis `organisations/{slug}`) n'a
+  pas encore été fait. De même, plusieurs textes UI affichent encore "SP
+  Pacy" en dur (en-tête terrain équipier, PDF de bilan, écran de choix du
+  membre) — repéré, pas corrigé.
+- Le nom/logo de la caserne **est** déjà dynamique dans la barre latérale
+  admin (`APP.organisationNom`, mis à jour à la connexion/au changement de
+  caserne) et dans la grille de choix de caserne (logo ou initiales de
+  repli si `logoBase64` est vide).
 
-Bug corrigé au passage : les 15 fichiers d'icônes (`icons/*.png`) étaient en
-réalité du **JPEG renommé en `.png`**, sans transparence, à des dimensions
-ne correspondant pas à leur nom de fichier (ex. `icon192.png` faisait
-196×196 px réels). Réencodés en vrai PNG aux tailles exactes annoncées —
-un vrai mismatch aurait pu bloquer l'installabilité PWA sous Chrome.
-
-Fichiers mis à jour en conséquence : `manifest.json`, `index.html`, `sw.js`
-(version de cache incrémentée), `build.py` (bloc `<head>` dupliqué).
+Bug corrigé au passage (avant le rebranding) : les 15 fichiers d'icônes
+(`icons/*.png`) étaient en réalité du **JPEG renommé en `.png`**, sans
+transparence, à des dimensions ne correspondant pas à leur nom de fichier.
+Réencodés en vrai PNG aux tailles exactes annoncées.
 
 ## Points ouverts / non tranchés
 
-- **Couleur** : le rouge exact du logo est `#B81C1D`, le rouge de l'app
-  (`--rouge`, `theme_color`) est `#CC1D1D`. Proches mais pas identiques.
-  Aucune harmonisation faite pour l'instant.
+- **Nouveau logo Agnyra** : pas encore fourni — voir "Statut" en tête de
+  document.
+- **Couleur** : le rouge exact de l'ancien logo Belenos était `#B81C1D`, le
+  rouge de l'app (`--rouge`, `theme_color`) est `#CC1D1D`. À vérifier/
+  harmoniser une fois le nouveau logo Agnyra en main.
 - **`start_url` / `scope` / `id` du manifest** : toujours
-  `/calendriers-sp-pacy-v2/`, hérité de l'ancien dépôt. À décider si Belenos
-  aura un nouveau chemin/domaine de déploiement propre.
-- **Chemins des icônes** : les fichiers sont référencés sans tiret
-  (`icons/icon192.png`) alors que l'ancien `manifest.json` utilisait des
-  tirets (`icons/icon-192.png`). À confirmer que la structure de dossier
-  réelle du dépôt correspond.
+  `/calendriers-sp-pacy-v2/`, hérité de l'ancien dépôt mono-tenant. Encore
+  plus daté depuis le renommage en Agnyra — à décider avec le nouveau
+  chemin/domaine de déploiement.
+- **Branding encore incohérent par endroits** : voir la liste dans l'état du
+  chantier 5 ci-dessus (terrain équipier, PDF, choix du membre disent encore
+  "Pacy").
 
 ## Structure du code
 
@@ -98,13 +201,21 @@ build.py                → génère index-monofichier.html
 index.html               → shell de dev, charge les modules directement
 manifest.json, sw.js
 icons/                    → 15 tailles (icon48 → icon512, maskable192/512, favicon32)
+firestore.rules           → règles de sécurité (à republier manuellement en console)
+functions/                → Cloud Function équipier, écrite mais non déployée
+scripts/                  → scripts one-off (seed, migration), à supprimer une fois utilisés
 ```
 
 Après toute modification des modules, relancer `python3 build.py` pour
-regénérer le monofichier avant de tester/déployer.
+regénérer le monofichier avant de tester/déployer. Une CI GitHub Actions
+(`.github/workflows/build.yml`) échoue si le monofichier committé n'est pas
+à jour, ou si un module a une erreur de syntaxe.
 
 ## Outils & infra
 
-- **Backend** : Firebase / Firestore, architecture single-site multi-tenant
+- **Backend** : Firebase / Firestore (`belenos-611bd` pour le développement/
+  test, `calendrier-pacy` en production réelle), architecture single-site
+  multi-tenant
 - **Build** : script Python maison (`build.py`), pas de bundler externe
 - **PWA** : service worker (`sw.js`) avec cache versionné
+- **CI** : GitHub Actions, build + vérification syntaxique à chaque push
