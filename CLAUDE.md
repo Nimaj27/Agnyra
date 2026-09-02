@@ -42,15 +42,15 @@ Trois éléments principaux :
 
 > **AGNYRA — Pilotez vos campagnes calendriers.**
 
-### Statut au 01/09/2026
+### Statut au 02/09/2026
 
 Le renommage **Belenos → Agnyra** a été fait dans tout le code, les textes et
 la configuration (voir liste de fichiers dans "Historique des chantiers"
-ci-dessous). **Le nouveau logo n'a pas encore été fourni** : `LOGO_AGNYRA`
-dans `js/app.js` et les 15 icônes de `icons/` affichent encore l'ancien
-visuel (roue solaire Belenos) en attendant le fichier définitif — à remplacer
-dès qu'il est disponible, sans quoi c'est le seul écart entre le nom affiché
-et le logo réellement affiché.
+ci-dessous). **Le nouveau logo est intégré** : `LOGO_AGNYRA` dans `js/app.js`
+et les 15 icônes de `icons/` ont été régénérées à partir du fichier fourni
+(casque + flamme + calendrier, fond blanc). `sw.js` : `CACHE_STATIC` a été
+incrémenté (`sp-static-3` → `sp-static-4`) pour que les installations PWA
+existantes récupèrent les nouvelles icônes.
 
 ## Décisions déjà prises (ne pas remettre en question sans discussion)
 
@@ -173,11 +173,9 @@ Réencodés en vrai PNG aux tailles exactes annoncées.
 
 ## Points ouverts / non tranchés
 
-- **Nouveau logo Agnyra** : pas encore fourni — voir "Statut" en tête de
-  document.
 - **Couleur** : le rouge exact de l'ancien logo Belenos était `#B81C1D`, le
-  rouge de l'app (`--rouge`, `theme_color`) est `#CC1D1D`. À vérifier/
-  harmoniser une fois le nouveau logo Agnyra en main.
+  rouge de l'app (`--rouge`, `theme_color`) est `#CC1D1D`. Pas encore
+  vérifié/harmonisé avec le rouge du nouveau logo Agnyra.
 - **`start_url` / `scope` / `id` du manifest** : toujours
   `/calendriers-sp-pacy-v2/`, hérité de l'ancien dépôt mono-tenant. Encore
   plus daté depuis le renommage en Agnyra — à décider avec le nouveau
