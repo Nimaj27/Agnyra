@@ -1,6 +1,6 @@
 // ============================================================
 // firebase.js — Configuration et initialisation Firebase
-// Belenos — projet Firebase dédié (chantier multi-tenant, point 1)
+// Agnyra — projet Firebase dédié (chantier multi-tenant, point 1)
 // ============================================================
 
 const FIREBASE_CONFIG = {

@@ -1,4 +1,4 @@
-# Belenos — Gestion de tournée de calendriers
+# Agnyra — Pilotez vos campagnes calendriers
 
 Application multi-tenant pour amicales de sapeurs-pompiers. Voir
 `CLAUDE.md` pour le contexte complet du projet (vision, chantiers en
@@ -44,5 +44,6 @@ régénère `index-monofichier.html` à partir des sources.
 
 ## État du projet
 
-Voir `CLAUDE.md` — chantier 5 (bascule de logo Belenos/caserne) fait,
-chantiers 1 à 4 et 6 (multi-tenant, sécurité Firestore, migration) à venir.
+Voir `CLAUDE.md` — chantier 5 (bascule de logo Agnyra/caserne) fait,
+chantiers 1, 4 (volet équipier) et 6 (Cloud Function, migration complète)
+encore ouverts.

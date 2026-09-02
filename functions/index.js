@@ -1,5 +1,5 @@
 // ============================================================
-// functions/index.js — Cloud Functions Belenos
+// functions/index.js — Cloud Functions Agnyra
 // Chantier multi-tenant, point 4 (volet équipier)
 // ============================================================
 //
