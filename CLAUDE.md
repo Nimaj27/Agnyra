@@ -65,12 +65,12 @@ affiché après connexion n'est plus le même pour toutes les casernes.
 `APP.organisationLogo`/`APP.organisationCouleur` sont alimentés à chaque
 connexion/changement de caserne (`appliquerOrganisation()`), à partir de
 `organisations/{slug}.logoBase64`/`.couleur`. Une caserne sans logo affiche
-désormais ses propres initiales sur fond coloré (`logoCaserneHTML()`) au
-lieu d'hériter à tort du logo de Pacy. Exception assumée : `organisations/
-pacy` n'a jamais reçu son `logoBase64` en base (jamais fait lors des
-chantiers 1-3), donc "pacy" seul retombe encore sur l'ancien logo figé
-(`LOGO_CASERNE_ACTUELLE`, conservé dans le code à cette seule fin) — à
-supprimer le jour où ce champ sera renseigné dans Firestore pour de vrai.
+ses propres initiales sur fond coloré (`logoCaserneHTML()`) au lieu
+d'hériter à tort du logo de Pacy. `organisations/pacy.logoBase64` a depuis
+été renseigné en base (via un script one-off, exécuté puis supprimé) :
+`LOGO_CASERNE_ACTUELLE` et son cas particulier dans
+`resoudreLogoOrganisation()` ont été retirés du code, plus aucune caserne
+n'a de logo figé en dur.
 
 ## Décisions déjà prises (ne pas remettre en question sans discussion)
 
@@ -188,10 +188,6 @@ Dans `js/app.js` :
   la session ne portait pas encore ce nom (ajout d'une clé
   `sessionStorage.organisationInfo`, alimentée à la connexion et
   restaurée/nettoyée comme `equipe`/`membre`).
-- Exception assumée pour "pacy" : `resoudreLogoOrganisation()` retombe sur
-  l'ancien logo figé (`LOGO_CASERNE_ACTUELLE`) uniquement pour cette
-  caserne, tant que son document `organisations/pacy` n'a pas reçu de
-  vrai `logoBase64` — voir "Points ouverts" ci-dessous.
 - Le nom/logo de la caserne **est** déjà dynamique dans la barre latérale
   admin (`APP.organisationNom`, mis à jour à la connexion/au changement de
   caserne) et dans la grille de choix de caserne (logo ou initiales de
@@ -208,12 +204,6 @@ Réencodés en vrai PNG aux tailles exactes annoncées.
   `/calendriers-sp-pacy-v2/`, hérité de l'ancien dépôt mono-tenant. Encore
   plus daté depuis le renommage en Agnyra — à décider avec le nouveau
   chemin/domaine de déploiement.
-- **`organisations/pacy.logoBase64` non renseigné** : Pacy retombe encore
-  sur l'ancien logo figé (`LOGO_CASERNE_ACTUELLE` dans `js/app.js`) — à
-  écrire une bonne fois dans Firestore (ce logo existe déjà en base64 dans
-  le code), puis supprimer la constante et son cas particulier dans
-  `resoudreLogoOrganisation()`. Ezy/Saint-André affichent déjà correctement
-  leurs initiales en attendant un vrai logo.
 
 ## Structure du code
 
