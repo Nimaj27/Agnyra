@@ -249,10 +249,15 @@ regénérer le monofichier avant de tester/déployer. Une CI GitHub Actions
 - **PWA** : service worker (`sw.js`) avec cache versionné
 - **CI** : GitHub Actions, build + vérification syntaxique à chaque push
 - **Hosting** : Firebase Hosting sur `belenos-611bd` (gratuit, plan Spark),
-  config prête (`.firebaserc`, section `hosting` de `firebase.json`) —
-  déploiement via `firebase deploy --only hosting` (voir README.md), à
-  exécuter par un humain authentifié (`firebase login` est une connexion
-  interactive, pas exécutable depuis cet environnement). URL une fois
-  déployé : `https://belenos-611bd.web.app`. Distinct du "cutover réel"
-  (les vrais équipiers restent sur `calendrier-pacy`) — donne juste une
+  via un site Hosting nommé "agnyra" (`.firebaserc` target + `firebase.json`
+  `hosting.target`) plutôt que le site par défaut du projet — permet une
+  URL `agnyra.web.app` sans dépendre du nom technique du projet Firebase.
+  Config prête, déploiement via `firebase deploy --only hosting` (voir
+  README.md pour la création du site en une fois), à exécuter par un
+  humain authentifié (`firebase login` est une connexion interactive, pas
+  exécutable depuis cet environnement). URL une fois déployé :
+  `https://agnyra.web.app` (ou une variante si ce nom est déjà pris — les
+  noms de site Hosting sont uniques dans le monde entier). Distinct du
+  "cutover réel" (les vrais équipiers restent sur `calendrier-pacy`) —
+  donne juste une
   URL publique à l'app qui utilise déjà `belenos-611bd`.
