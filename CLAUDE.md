@@ -60,6 +60,18 @@ encore "SP Pacy"/"Pacy-sur-Eure" en dur ont été rendus dynamiques
 (`APP.organisationNom`) ; en-têtes de commentaires des modules restants
 alignés sur "Agnyra".
 
+**Logo de caserne enfin dynamique par organisation** (04/09) : le logo
+affiché après connexion n'est plus le même pour toutes les casernes.
+`APP.organisationLogo`/`APP.organisationCouleur` sont alimentés à chaque
+connexion/changement de caserne (`appliquerOrganisation()`), à partir de
+`organisations/{slug}.logoBase64`/`.couleur`. Une caserne sans logo affiche
+désormais ses propres initiales sur fond coloré (`logoCaserneHTML()`) au
+lieu d'hériter à tort du logo de Pacy. Exception assumée : `organisations/
+pacy` n'a jamais reçu son `logoBase64` en base (jamais fait lors des
+chantiers 1-3), donc "pacy" seul retombe encore sur l'ancien logo figé
+(`LOGO_CASERNE_ACTUELLE`, conservé dans le code à cette seule fin) — à
+supprimer le jour où ce champ sera renseigné dans Firestore pour de vrai.
+
 ## Décisions déjà prises (ne pas remettre en question sans discussion)
 
 - **Architecture** : multi-tenant single-site, isolation des données par
@@ -160,19 +172,26 @@ change ce qui s'affiche. `APP.organisationId` (dans `app.js`) ne suffit pas
 Dans `js/app.js` :
 - `const LOGO_AGNYRA` (ex-`LOGO_BELENOS`) — logo produit fixe, utilisé
   **uniquement** dans `renderLogin()` et `afficherChoixCaserneAdmin()`.
-- `const LOGO_CASERNE_ACTUELLE` — logo de la caserne connectée, utilisé
-  partout après authentification : choix du membre (`afficherChoixMembre`),
-  sidebar admin (`layoutAdmin`), export PDF (`pdf.js` / `logoBase64`), fiche
-  secteur, notifications de résumé quotidien.
-- **Reste une valeur figée** (le logo Pacy) malgré les chantiers 1-3 faits —
-  la rendre dynamique par caserne (lue depuis `organisations/{slug}`) n'a
-  pas encore été fait. En revanche, tous les **textes** UI qui affichaient
-  "SP Pacy"/"Pacy-sur-Eure" en dur (en-tête terrain équipier, export PDF du
-  bilan, fiche secteur imprimable, écran de choix du membre) ont été
-  corrigés pour utiliser `APP.organisationNom` — y compris pour l'équipier
-  connecté par PIN, dont la session ne portait pas encore ce nom (ajout
-  d'une clé `sessionStorage.organisationNom`, alimentée à la connexion et
+- `APP.organisationLogo`/`APP.organisationCouleur` — logo/couleur de la
+  caserne connectée, alimentés par `appliquerOrganisation(org)` à chaque
+  connexion/changement de caserne (admin, équipier PIN, choix du
+  super-admin), utilisés partout après authentification : choix du membre
+  (`afficherChoixMembre`), sidebar admin (`layoutAdmin`), export PDF
+  (`pdf.js` / `logoBase64`), fiche secteur, notifications de résumé
+  quotidien. `logoCaserneHTML(style)` rend soit l'`<img>` du logo, soit un
+  repli en initiales colorées si `organisations/{slug}.logoBase64` est
+  vide (même logique que la grille de choix de caserne).
+- **Tous les textes** UI qui affichaient "SP Pacy"/"Pacy-sur-Eure" en dur
+  (en-tête terrain équipier, export PDF du bilan, fiche secteur
+  imprimable, écran de choix du membre) ont été corrigés pour utiliser
+  `APP.organisationNom` — y compris pour l'équipier connecté par PIN, dont
+  la session ne portait pas encore ce nom (ajout d'une clé
+  `sessionStorage.organisationInfo`, alimentée à la connexion et
   restaurée/nettoyée comme `equipe`/`membre`).
+- Exception assumée pour "pacy" : `resoudreLogoOrganisation()` retombe sur
+  l'ancien logo figé (`LOGO_CASERNE_ACTUELLE`) uniquement pour cette
+  caserne, tant que son document `organisations/pacy` n'a pas reçu de
+  vrai `logoBase64` — voir "Points ouverts" ci-dessous.
 - Le nom/logo de la caserne **est** déjà dynamique dans la barre latérale
   admin (`APP.organisationNom`, mis à jour à la connexion/au changement de
   caserne) et dans la grille de choix de caserne (logo ou initiales de
@@ -189,11 +208,12 @@ Réencodés en vrai PNG aux tailles exactes annoncées.
   `/calendriers-sp-pacy-v2/`, hérité de l'ancien dépôt mono-tenant. Encore
   plus daté depuis le renommage en Agnyra — à décider avec le nouveau
   chemin/domaine de déploiement.
-- **Logo de caserne toujours figé sur celui de Pacy** (`LOGO_CASERNE_ACTUELLE`
-  dans `js/app.js`) — le champ `logoBase64` existe déjà sur les documents
-  `organisations/{slug}`, mais rien ne le lit pour l'instant. Reste à faire
-  le jour où Ezy/Saint-André (ou une autre caserne) fournissent un vrai
-  logo.
+- **`organisations/pacy.logoBase64` non renseigné** : Pacy retombe encore
+  sur l'ancien logo figé (`LOGO_CASERNE_ACTUELLE` dans `js/app.js`) — à
+  écrire une bonne fois dans Firestore (ce logo existe déjà en base64 dans
+  le code), puis supprimer la constante et son cas particulier dans
+  `resoudreLogoOrganisation()`. Ezy/Saint-André affichent déjà correctement
+  leurs initiales en attendant un vrai logo.
 
 ## Structure du code
 
