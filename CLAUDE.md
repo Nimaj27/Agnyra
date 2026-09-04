@@ -248,3 +248,11 @@ regénérer le monofichier avant de tester/déployer. Une CI GitHub Actions
 - **Build** : script Python maison (`build.py`), pas de bundler externe
 - **PWA** : service worker (`sw.js`) avec cache versionné
 - **CI** : GitHub Actions, build + vérification syntaxique à chaque push
+- **Hosting** : Firebase Hosting sur `belenos-611bd` (gratuit, plan Spark),
+  config prête (`.firebaserc`, section `hosting` de `firebase.json`) —
+  déploiement via `firebase deploy --only hosting` (voir README.md), à
+  exécuter par un humain authentifié (`firebase login` est une connexion
+  interactive, pas exécutable depuis cet environnement). URL une fois
+  déployé : `https://belenos-611bd.web.app`. Distinct du "cutover réel"
+  (les vrais équipiers restent sur `calendrier-pacy`) — donne juste une
+  URL publique à l'app qui utilise déjà `belenos-611bd`.

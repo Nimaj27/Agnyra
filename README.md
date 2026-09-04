@@ -42,6 +42,28 @@ régénère `index-monofichier.html` à partir des sources.
    des versions dépareillées entre modules font planter le chargement de
    l'appli au complet (erreur du type `does not provide an export named...`)
 
+## Déployer sur Firebase Hosting (belenos-611bd)
+
+Gratuit (plan Spark, comme le reste du projet). Une seule fois :
+
+```bash
+npm install -g firebase-tools   # si pas déjà installé
+firebase login                  # ouvre une fenêtre de connexion Google
+```
+
+Puis à chaque déploiement, depuis la racine du dépôt :
+
+```bash
+firebase deploy --only hosting
+```
+
+L'app sera accessible sur `https://belenos-611bd.web.app`. `.firebaserc`
+et la section `hosting` de `firebase.json` sont déjà configurés (dossier
+public = racine du dépôt, fichiers non-web comme `CLAUDE.md`/`firestore.
+rules`/`scripts/`/`functions/` exclus). Ne pas oublier les étapes de
+"Publier une mise à jour" ci-dessus (bump `VERSION`/`CACHE_STATIC`) avant
+de déployer un changement visible.
+
 ## État du projet
 
 Voir `CLAUDE.md` — chantier 5 (bascule de logo Agnyra/caserne) fait,

@@ -1,5 +1,28 @@
 {
   "functions": {
     "source": "functions"
+  },
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "firestore.rules",
+      "functions/**",
+      "scripts/**",
+      ".git/**",
+      ".github/**",
+      ".claude/**",
+      "node_modules/**",
+      "CLAUDE.md",
+      "README.md",
+      "setup.sh"
+    ],
+    "headers": [
+      {
+        "source": "/sw.js",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
+    ],
+    "cleanUrls": true
   }
 }
