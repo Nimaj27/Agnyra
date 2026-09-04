@@ -44,33 +44,45 @@ régénère `index-monofichier.html` à partir des sources.
 
 ## Déployer sur Firebase Hosting (agnyra.web.app)
 
-Gratuit (plan Spark, comme le reste du projet). Une seule fois :
+Gratuit (plan Spark, comme le reste du projet). Deux façons de faire :
+
+### Automatique, sans rien installer (recommandé)
+
+`.github/workflows/deploy.yml` déploie automatiquement à chaque push sur
+`main` (ou `claude/verify-build-index-qymiy0` pour l'instant), exactement
+comme pour le projet Planning PIN — zéro CLI, zéro installation, tout se
+passe sur les serveurs de GitHub. Une seule config manuelle, entièrement
+dans les navigateurs :
+
+1. **Créer le site Hosting** "agnyra" une fois : console Firebase → projet
+   `belenos-611bd` → Hosting → "Ajouter un autre site" → taper `agnyra`
+   (si déjà pris ailleurs, choisir une variante et l'utiliser à la place
+   dans `.firebaserc`/`firebase.json`, champ `target`/`targets`).
+2. **Générer une clé de compte de service** : console Firebase → ⚙️
+   Paramètres du projet → onglet "Comptes de service" → "Générer une
+   nouvelle clé privée" → télécharge un fichier `.json`.
+3. **Ajouter cette clé comme secret GitHub** : sur le dépôt GitHub →
+   Settings → Secrets and variables → Actions → "New repository secret" →
+   nom `FIREBASE_SERVICE_ACCOUNT_AGNYRA`, valeur = tout le contenu du
+   fichier `.json` téléchargé à l'étape précédente.
+
+Une fois ces 3 étapes faites, chaque `git push` republie automatiquement
+l'app sur `https://agnyra.web.app` (la CI génère le monofichier, vérifie
+la syntaxe et numérote `VERSION` dans `sw.js` toute seule — plus besoin de
+le faire à la main avant de déployer).
+
+### Manuelle, via la CLI Firebase
 
 ```bash
 npm install -g firebase-tools   # si pas déjà installé
 firebase login                  # ouvre une fenêtre de connexion Google
 firebase hosting:sites:create agnyra
-```
-
-La dernière commande crée un site Hosting nommé "agnyra" à l'intérieur du
-projet `belenos-611bd` (le nom du projet Firebase reste technique, invisible
-aux utilisateurs — voir CLAUDE.md). Si `agnyra` est déjà pris par quelqu'un
-d'autre ailleurs sur Firebase (les noms de site sont uniques dans le monde
-entier), essayer une variante (`agnyra-app`, `agnyra-sp`...) et l'utiliser à
-la place dans `.firebaserc`/`firebase.json` (champ `target`).
-
-Puis à chaque déploiement, depuis la racine du dépôt :
-
-```bash
 firebase deploy --only hosting
 ```
 
-L'app sera accessible sur `https://agnyra.web.app`. `.firebaserc` et la
-section `hosting` de `firebase.json` sont déjà configurés (dossier public =
-racine du dépôt, fichiers non-web comme `CLAUDE.md`/`firestore.rules`/
-`scripts/`/`functions/` exclus). Ne pas oublier les étapes de "Publier une
-mise à jour" ci-dessus (bump `VERSION`/`CACHE_STATIC`) avant de déployer un
-changement visible.
+Dans ce cas, penser à suivre les étapes de "Publier une mise à jour"
+ci-dessus (bump `VERSION`/`CACHE_STATIC`) avant de déployer, puisque la CI
+ne s'en charge pas pour un déploiement manuel.
 
 ## État du projet
 
