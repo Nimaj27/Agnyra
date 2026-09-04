@@ -42,7 +42,7 @@ Trois éléments principaux :
 
 > **AGNYRA — Pilotez vos campagnes calendriers.**
 
-### Statut au 02/09/2026
+### Statut au 04/09/2026
 
 Le renommage **Belenos → Agnyra** a été fait dans tout le code, les textes et
 la configuration (voir liste de fichiers dans "Historique des chantiers"
@@ -51,6 +51,26 @@ et les 15 icônes de `icons/` ont été régénérées à partir du fichier four
 (casque + flamme + calendrier, fond blanc). `sw.js` : `CACHE_STATIC` a été
 incrémenté (`sp-static-3` → `sp-static-4`) pour que les installations PWA
 existantes récupèrent les nouvelles icônes.
+
+**Nettoyage cosmétique complet** (04/09) : couleur rouge harmonisée sur le
+rouge exact du logo Agnyra (`#E50410`, remplace `#CC1D1D` dans
+`css/style.css`, `manifest.json`, `index.html`/`build.py`, `js/pdf.js`,
+fiche secteur imprimable et carte) ; tous les textes UI qui affichaient
+encore "SP Pacy"/"Pacy-sur-Eure" en dur ont été rendus dynamiques
+(`APP.organisationNom`) ; en-têtes de commentaires des modules restants
+alignés sur "Agnyra".
+
+**Logo de caserne enfin dynamique par organisation** (04/09) : le logo
+affiché après connexion n'est plus le même pour toutes les casernes.
+`APP.organisationLogo`/`APP.organisationCouleur` sont alimentés à chaque
+connexion/changement de caserne (`appliquerOrganisation()`), à partir de
+`organisations/{slug}.logoBase64`/`.couleur`. Une caserne sans logo affiche
+ses propres initiales sur fond coloré (`logoCaserneHTML()`) au lieu
+d'hériter à tort du logo de Pacy. `organisations/pacy.logoBase64` a depuis
+été renseigné en base (via un script one-off, exécuté puis supprimé) :
+`LOGO_CASERNE_ACTUELLE` et son cas particulier dans
+`resoudreLogoOrganisation()` ont été retirés du code, plus aucune caserne
+n'a de logo figé en dur.
 
 ## Décisions déjà prises (ne pas remettre en question sans discussion)
 
@@ -152,15 +172,22 @@ change ce qui s'affiche. `APP.organisationId` (dans `app.js`) ne suffit pas
 Dans `js/app.js` :
 - `const LOGO_AGNYRA` (ex-`LOGO_BELENOS`) — logo produit fixe, utilisé
   **uniquement** dans `renderLogin()` et `afficherChoixCaserneAdmin()`.
-- `const LOGO_CASERNE_ACTUELLE` — logo de la caserne connectée, utilisé
-  partout après authentification : choix du membre (`afficherChoixMembre`),
-  sidebar admin (`layoutAdmin`), export PDF (`pdf.js` / `logoBase64`), fiche
-  secteur, notifications de résumé quotidien.
-- **Reste une valeur figée** (le logo Pacy) malgré les chantiers 1-3 faits —
-  la rendre dynamique par caserne (lue depuis `organisations/{slug}`) n'a
-  pas encore été fait. De même, plusieurs textes UI affichent encore "SP
-  Pacy" en dur (en-tête terrain équipier, PDF de bilan, écran de choix du
-  membre) — repéré, pas corrigé.
+- `APP.organisationLogo`/`APP.organisationCouleur` — logo/couleur de la
+  caserne connectée, alimentés par `appliquerOrganisation(org)` à chaque
+  connexion/changement de caserne (admin, équipier PIN, choix du
+  super-admin), utilisés partout après authentification : choix du membre
+  (`afficherChoixMembre`), sidebar admin (`layoutAdmin`), export PDF
+  (`pdf.js` / `logoBase64`), fiche secteur, notifications de résumé
+  quotidien. `logoCaserneHTML(style)` rend soit l'`<img>` du logo, soit un
+  repli en initiales colorées si `organisations/{slug}.logoBase64` est
+  vide (même logique que la grille de choix de caserne).
+- **Tous les textes** UI qui affichaient "SP Pacy"/"Pacy-sur-Eure" en dur
+  (en-tête terrain équipier, export PDF du bilan, fiche secteur
+  imprimable, écran de choix du membre) ont été corrigés pour utiliser
+  `APP.organisationNom` — y compris pour l'équipier connecté par PIN, dont
+  la session ne portait pas encore ce nom (ajout d'une clé
+  `sessionStorage.organisationInfo`, alimentée à la connexion et
+  restaurée/nettoyée comme `equipe`/`membre`).
 - Le nom/logo de la caserne **est** déjà dynamique dans la barre latérale
   admin (`APP.organisationNom`, mis à jour à la connexion/au changement de
   caserne) et dans la grille de choix de caserne (logo ou initiales de
@@ -171,18 +198,22 @@ Bug corrigé au passage (avant le rebranding) : les 15 fichiers d'icônes
 transparence, à des dimensions ne correspondant pas à leur nom de fichier.
 Réencodés en vrai PNG aux tailles exactes annoncées.
 
+## Bug corrigé : installation PWA cassée hors de l'ancien chemin (04/09)
+
+`manifest.json` avait `start_url`/`scope`/`id`/URLs des raccourcis codés en
+dur sur `/calendriers-sp-pacy-v2/` (hérité de l'ancien dépôt mono-tenant).
+Chrome exige que `start_url` soit dans `scope`, qui doit lui-même englober
+l'URL réelle de la page — servir l'appli ailleurs (ex. `localhost` à la
+racine, ou tout futur domaine Agnyra) rendait l'installation impossible,
+sans aucun message d'erreur visible (juste pas d'icône d'installation).
+Corrigé en passant ces champs en chemins relatifs (`"./"`,
+`"./#terrain"`, `"./#dashboard"`) : ça fonctionne quel que soit l'endroit
+où l'appli est servie, donc plus besoin de trancher un chemin/domaine à
+l'avance.
+
 ## Points ouverts / non tranchés
 
-- **Couleur** : le rouge exact de l'ancien logo Belenos était `#B81C1D`, le
-  rouge de l'app (`--rouge`, `theme_color`) est `#CC1D1D`. Pas encore
-  vérifié/harmonisé avec le rouge du nouveau logo Agnyra.
-- **`start_url` / `scope` / `id` du manifest** : toujours
-  `/calendriers-sp-pacy-v2/`, hérité de l'ancien dépôt mono-tenant. Encore
-  plus daté depuis le renommage en Agnyra — à décider avec le nouveau
-  chemin/domaine de déploiement.
-- **Branding encore incohérent par endroits** : voir la liste dans l'état du
-  chantier 5 ci-dessus (terrain équipier, PDF, choix du membre disent encore
-  "Pacy").
+(aucun pour l'instant)
 
 ## Structure du code
 
@@ -217,3 +248,16 @@ regénérer le monofichier avant de tester/déployer. Une CI GitHub Actions
 - **Build** : script Python maison (`build.py`), pas de bundler externe
 - **PWA** : service worker (`sw.js`) avec cache versionné
 - **CI** : GitHub Actions, build + vérification syntaxique à chaque push
+- **Hosting** : Firebase Hosting sur `belenos-611bd` (gratuit, plan Spark),
+  via un site Hosting nommé "agnyra" (`.firebaserc` target + `firebase.json`
+  `hosting.target`) plutôt que le site par défaut du projet — permet une
+  URL `agnyra.web.app` sans dépendre du nom technique du projet Firebase.
+  Config prête, déploiement via `firebase deploy --only hosting` (voir
+  README.md pour la création du site en une fois), à exécuter par un
+  humain authentifié (`firebase login` est une connexion interactive, pas
+  exécutable depuis cet environnement). URL une fois déployé :
+  `https://agnyra.web.app` (ou une variante si ce nom est déjà pris — les
+  noms de site Hosting sont uniques dans le monde entier). Distinct du
+  "cutover réel" (les vrais équipiers restent sur `calendrier-pacy`) —
+  donne juste une
+  URL publique à l'app qui utilise déjà `belenos-611bd`.

@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "belenos-611bd"
+  },
+  "targets": {
+    "belenos-611bd": {
+      "hosting": {
+        "agnyra": [
+          "agnyra"
+        ]
+      }
+    }
+  }
+}

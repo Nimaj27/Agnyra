@@ -222,7 +222,7 @@ export async function afficherSecteurUnique(map, secteur) {
     geojson = await fetchContourCommune(codeInsee);
   }
   if (!geojson) return null;
-  const couleur=secteur.couleur||"#CC1D1D";
+  const couleur=secteur.couleur||"#E50410";
   const layer=L.geoJSON(geojson,{style:{color:couleur,weight:3,fillColor:couleur,fillOpacity:0.3}});
   layer.addTo(map);
   const bounds=layer.getBounds(); if(bounds.isValid()) map.fitBounds(bounds,{padding:[30,30]});

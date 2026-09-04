@@ -1,6 +1,6 @@
 // ============================================================
 // notifications.js — Notifications locales (résumé quotidien)
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 import { statsGlobalesTournee } from "./tournee.js";

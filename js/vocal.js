@@ -1,6 +1,6 @@
 // ============================================================
 // vocal.js — Reconnaissance vocale pour la saisie terrain
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 // Vérifie la disponibilité de l'API Web Speech

@@ -1,6 +1,6 @@
 // ============================================================
 // journal.js — Journal des modifications
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 //
 // Trace les corrections et suppressions de passages : qui, quoi, quand.
 // Utile en cas d'écart constaté au moment des comptes.

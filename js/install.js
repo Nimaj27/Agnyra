@@ -1,6 +1,6 @@
 // ============================================================
 // install.js — Invitation à installer l'application (PWA)
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 const CLE_INSTALL_REFUS = "sp_install_refuse";

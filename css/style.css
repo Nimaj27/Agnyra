@@ -1,6 +1,6 @@
 /* ============================================================
-   style.css — Design mobile-first Amicale SP Pacy-sur-Eure
-   Palette : rouge pompier #CC1D1D, gris ardoise #2D3142,
+   style.css — Design mobile-first Agnyra
+   Palette : rouge Agnyra #E50410, gris anthracite #2D3142,
              blanc #FFFFFF, orange alerte #F97316, vert succès #16A34A
    ============================================================ */
 
@@ -8,10 +8,10 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* Couleurs SDIS */
-  --rouge:       #CC1D1D;
-  --rouge-dark:  #A01515;
-  --rouge-light: #FDECEA;
+  /* Couleurs Agnyra (rouge repris du logo) */
+  --rouge:       #E50410;
+  --rouge-dark:  #A0151C;
+  --rouge-light: #FDEAEB;
   --ardoise:     #2D3142;
   --ardoise-mid: #4A4E6A;
   --ardoise-light: #E8E9EF;
@@ -114,7 +114,7 @@ body {
   transition: border-color .15s, box-shadow .15s;
   -webkit-appearance: none;
 }
-.input:focus { outline: none; border-color: var(--rouge); box-shadow: 0 0 0 3px rgba(204,29,29,.12); }
+.input:focus { outline: none; border-color: var(--rouge); box-shadow: 0 0 0 3px rgba(229,4,16,.12); }
 .input.textarea { resize: vertical; min-height: 80px; }
 .input--sm { padding: var(--sp-2) var(--sp-3); font-size: .85rem; }
 .input--color { padding: var(--sp-2); height: 42px; cursor: pointer; }
@@ -639,8 +639,8 @@ body {
 }
 .btn-vocal--active .btn-vocal-icon { animation: bounce-mic .8s infinite; }
 @keyframes pulse-vocal {
-  0%,100% { box-shadow: 0 0 0 0 rgba(204,29,29,.5); }
-  50%     { box-shadow: 0 0 0 12px rgba(204,29,29,0); }
+  0%,100% { box-shadow: 0 0 0 0 rgba(229,4,16,.5); }
+  50%     { box-shadow: 0 0 0 12px rgba(229,4,16,0); }
 }
 @keyframes bounce-mic {
   0%,100% { transform: scale(1); }
