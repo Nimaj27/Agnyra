@@ -252,12 +252,15 @@ regénérer le monofichier avant de tester/déployer. Une CI GitHub Actions
   via un site Hosting nommé "agnyra" (`.firebaserc` target + `firebase.json`
   `hosting.target`) plutôt que le site par défaut du projet — permet une
   URL `agnyra.web.app` sans dépendre du nom technique du projet Firebase.
-  Config prête, déploiement via `firebase deploy --only hosting` (voir
-  README.md pour la création du site en une fois), à exécuter par un
-  humain authentifié (`firebase login` est une connexion interactive, pas
-  exécutable depuis cet environnement). URL une fois déployé :
-  `https://agnyra.web.app` (ou une variante si ce nom est déjà pris — les
-  noms de site Hosting sont uniques dans le monde entier). Distinct du
-  "cutover réel" (les vrais équipiers restent sur `calendrier-pacy`) —
-  donne juste une
-  URL publique à l'app qui utilise déjà `belenos-611bd`.
+  Déploiement **automatique** via `.github/workflows/deploy.yml` à chaque
+  push (même mécanisme que le projet Planning PIN de l'utilisateur :
+  `FirebaseExtended/action-hosting-deploy@v0`, authentifié par le secret
+  GitHub `FIREBASE_SERVICE_ACCOUNT_AGNYRA`) — zéro CLI locale nécessaire une
+  fois le site créé et le secret ajouté (les deux se font entièrement dans
+  les consoles web Firebase/GitHub, voir README.md). Une CLI locale reste
+  possible en repli (`firebase deploy --only hosting`) mais n'est plus le
+  chemin recommandé. URL une fois déployé : `https://agnyra.web.app` (ou
+  une variante si ce nom est déjà pris — les noms de site Hosting sont
+  uniques dans le monde entier). Distinct du "cutover réel" (les vrais
+  équipiers restent sur `calendrier-pacy`) — donne juste une URL publique
+  à l'app qui utilise déjà `belenos-611bd`.

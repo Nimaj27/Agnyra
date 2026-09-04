@@ -1,0 +1,45 @@
+name: Déploiement Agnyra
+
+"on":
+  push:
+    branches: [main, claude/verify-build-index-qymiy0]
+  workflow_dispatch:
+
+jobs:
+  deployer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Générer le monofichier
+        run: python3 build.py
+
+      - name: Numéroter le service worker
+        run: |
+          VERSION="agnyra-$(date -u +%Y%m%d)-${GITHUB_RUN_NUMBER}"
+          sed -i "s|^const VERSION\s*=.*;|const VERSION       = \"${VERSION}\";|" sw.js
+          grep -q "${VERSION}" sw.js || { echo "::error::Réécriture de VERSION échouée"; exit 1; }
+
+      - name: Contrôles avant envoi
+        run: |
+          test -f index.html
+          test -f manifest.json
+          node --check sw.js
+          for f in js/*.js; do node --check "$f"; done
+
+      - name: Déployer l'hébergement
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_AGNYRA }}
+          channelId: live
+          projectId: belenos-611bd
+          target: agnyra
