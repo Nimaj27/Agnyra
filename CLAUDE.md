@@ -198,12 +198,22 @@ Bug corrigé au passage (avant le rebranding) : les 15 fichiers d'icônes
 transparence, à des dimensions ne correspondant pas à leur nom de fichier.
 Réencodés en vrai PNG aux tailles exactes annoncées.
 
+## Bug corrigé : installation PWA cassée hors de l'ancien chemin (04/09)
+
+`manifest.json` avait `start_url`/`scope`/`id`/URLs des raccourcis codés en
+dur sur `/calendriers-sp-pacy-v2/` (hérité de l'ancien dépôt mono-tenant).
+Chrome exige que `start_url` soit dans `scope`, qui doit lui-même englober
+l'URL réelle de la page — servir l'appli ailleurs (ex. `localhost` à la
+racine, ou tout futur domaine Agnyra) rendait l'installation impossible,
+sans aucun message d'erreur visible (juste pas d'icône d'installation).
+Corrigé en passant ces champs en chemins relatifs (`"./"`,
+`"./#terrain"`, `"./#dashboard"`) : ça fonctionne quel que soit l'endroit
+où l'appli est servie, donc plus besoin de trancher un chemin/domaine à
+l'avance.
+
 ## Points ouverts / non tranchés
 
-- **`start_url` / `scope` / `id` du manifest** : toujours
-  `/calendriers-sp-pacy-v2/`, hérité de l'ancien dépôt mono-tenant. Encore
-  plus daté depuis le renommage en Agnyra — à décider avec le nouveau
-  chemin/domaine de déploiement.
+(aucun pour l'instant)
 
 ## Structure du code
 

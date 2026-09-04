@@ -2,9 +2,9 @@
   "name": "Agnyra — Pilotez vos campagnes calendriers",
   "short_name": "Agnyra",
   "description": "Application de gestion de tournée de vente de calendriers pour amicales de sapeurs-pompiers.",
-  "id": "/calendriers-sp-pacy-v2/",
-  "start_url": "/calendriers-sp-pacy-v2/",
-  "scope": "/calendriers-sp-pacy-v2/",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "display_override": [
     "standalone",
@@ -98,7 +98,7 @@
     {
       "name": "Mes secteurs",
       "short_name": "Secteurs",
-      "url": "/calendriers-sp-pacy-v2/#terrain",
+      "url": "./#terrain",
       "icons": [
         {
           "src": "icons/icon96.png",
@@ -109,7 +109,7 @@
     {
       "name": "Tableau de bord",
       "short_name": "Bord",
-      "url": "/calendriers-sp-pacy-v2/#dashboard",
+      "url": "./#dashboard",
       "icons": [
         {
           "src": "icons/icon96.png",
