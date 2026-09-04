@@ -248,19 +248,21 @@ regénérer le monofichier avant de tester/déployer. Une CI GitHub Actions
 - **Build** : script Python maison (`build.py`), pas de bundler externe
 - **PWA** : service worker (`sw.js`) avec cache versionné
 - **CI** : GitHub Actions, build + vérification syntaxique à chaque push
-- **Hosting** : Firebase Hosting sur `belenos-611bd` (gratuit, plan Spark),
-  via un site Hosting nommé "agnyra" (`.firebaserc` target + `firebase.json`
-  `hosting.target`) plutôt que le site par défaut du projet — permet une
-  URL `agnyra.web.app` sans dépendre du nom technique du projet Firebase.
-  Déploiement **automatique** via `.github/workflows/deploy.yml` à chaque
-  push (même mécanisme que le projet Planning PIN de l'utilisateur :
+- **Hosting** : ✅ **déployé et fonctionnel** sur `https://agnyra.web.app`
+  (site Hosting nommé "agnyra" dans le projet `belenos-611bd`, gratuit,
+  plan Spark). Déploiement **automatique** via `.github/workflows/
+  deploy.yml` à chaque push sur `main`/`claude/verify-build-index-qymiy0`
+  (même mécanisme que le projet Planning PIN de l'utilisateur :
   `FirebaseExtended/action-hosting-deploy@v0`, authentifié par le secret
-  GitHub `FIREBASE_SERVICE_ACCOUNT_AGNYRA`) — zéro CLI locale nécessaire une
-  fois le site créé et le secret ajouté (les deux se font entièrement dans
-  les consoles web Firebase/GitHub, voir README.md). Une CLI locale reste
-  possible en repli (`firebase deploy --only hosting`) mais n'est plus le
-  chemin recommandé. URL une fois déployé : `https://agnyra.web.app` (ou
-  une variante si ce nom est déjà pris — les noms de site Hosting sont
-  uniques dans le monde entier). Distinct du "cutover réel" (les vrais
-  équipiers restent sur `calendrier-pacy`) — donne juste une URL publique
-  à l'app qui utilise déjà `belenos-611bd`.
+  GitHub `FIREBASE_SERVICE_ACCOUNT_AGNYRA`) — zéro CLI locale nécessaire,
+  tout se fait dans les consoles web Firebase/GitHub (voir README.md pour
+  la procédure). Une CLI locale reste possible en repli (`firebase deploy
+  --only hosting`).
+  `agnyra.web.app` a dû être ajouté aux "Authorized domains" de Firebase
+  Authentication (console → Authentication → Settings) pour que la
+  connexion Google fonctionne — un nouveau domaine/site Hosting n'est pas
+  autorisé par défaut, seuls `localhost` et le domaine par défaut du
+  projet le sont. À refaire pour tout futur domaine personnalisé.
+  Distinct du "cutover réel" (les vrais équipiers restent sur
+  `calendrier-pacy`) — c'est juste une URL publique pour l'app qui utilise
+  déjà `belenos-611bd`.
