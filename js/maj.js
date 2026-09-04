@@ -1,6 +1,6 @@
 // ============================================================
 // maj.js — Détection et application des mises à jour
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 let _registration = null;

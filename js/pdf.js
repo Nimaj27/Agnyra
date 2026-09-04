@@ -1,6 +1,6 @@
 // ============================================================
 // pdf.js — Export PDF du bilan de tournée
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 // Chargement dynamique de jsPDF + autoTable (CDN, pas de dépendance serveur)
@@ -26,7 +26,7 @@ function chargerJsPDF() {
   return _pdfLoading;
 }
 
-const COULEUR_ROUGE = [204, 29, 29];
+const COULEUR_ROUGE = [229, 4, 16];
 const COULEUR_ARDOISE = [45, 49, 66];
 const COULEUR_GRIS = [120, 125, 140];
 
@@ -39,8 +39,9 @@ function fmtEuro(v) {
 // secteurs : liste des secteurs
 // passages : liste des passages
 // logoBase64 : data URI du logo (optionnel)
+// organisationNom : nom de la caserne (optionnel, affiché dans l'en-tête et le pied de page)
 // config : config de la tournée (année, objectif...)
-export async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = null, config = {} }) {
+export async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = null, organisationNom = null, config = {} }) {
   await chargerJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -61,7 +62,7 @@ export async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.setTextColor(...COULEUR_ARDOISE);
-  doc.text("Amicale des Sapeurs-Pompiers de Pacy-sur-Eure", logoBase64 ? 42 : 15, y + 15);
+  doc.text(organisationNom || "Amicale des Sapeurs-Pompiers", logoBase64 ? 42 : 15, y + 15);
   doc.setFontSize(9);
   doc.setTextColor(...COULEUR_GRIS);
   doc.text(`Saison ${annee}  -  Edite le ${dateEdition}`, logoBase64 ? 42 : 15, y + 21);
@@ -201,7 +202,7 @@ export async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...COULEUR_GRIS);
-    doc.text("Amicale des Sapeurs-Pompiers de Pacy-sur-Eure  -  SDIS 27", 15, pageH - 10);
+    doc.text(organisationNom || "Amicale des Sapeurs-Pompiers", 15, pageH - 10);
     doc.text(`Page ${i} / ${nbPages}`, pageW - 15, pageH - 10, { align: "right" });
   }
 

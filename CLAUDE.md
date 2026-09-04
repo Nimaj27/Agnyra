@@ -42,7 +42,7 @@ Trois éléments principaux :
 
 > **AGNYRA — Pilotez vos campagnes calendriers.**
 
-### Statut au 02/09/2026
+### Statut au 04/09/2026
 
 Le renommage **Belenos → Agnyra** a été fait dans tout le code, les textes et
 la configuration (voir liste de fichiers dans "Historique des chantiers"
@@ -51,6 +51,14 @@ et les 15 icônes de `icons/` ont été régénérées à partir du fichier four
 (casque + flamme + calendrier, fond blanc). `sw.js` : `CACHE_STATIC` a été
 incrémenté (`sp-static-3` → `sp-static-4`) pour que les installations PWA
 existantes récupèrent les nouvelles icônes.
+
+**Nettoyage cosmétique complet** (04/09) : couleur rouge harmonisée sur le
+rouge exact du logo Agnyra (`#E50410`, remplace `#CC1D1D` dans
+`css/style.css`, `manifest.json`, `index.html`/`build.py`, `js/pdf.js`,
+fiche secteur imprimable et carte) ; tous les textes UI qui affichaient
+encore "SP Pacy"/"Pacy-sur-Eure" en dur ont été rendus dynamiques
+(`APP.organisationNom`) ; en-têtes de commentaires des modules restants
+alignés sur "Agnyra".
 
 ## Décisions déjà prises (ne pas remettre en question sans discussion)
 
@@ -158,9 +166,13 @@ Dans `js/app.js` :
   secteur, notifications de résumé quotidien.
 - **Reste une valeur figée** (le logo Pacy) malgré les chantiers 1-3 faits —
   la rendre dynamique par caserne (lue depuis `organisations/{slug}`) n'a
-  pas encore été fait. De même, plusieurs textes UI affichent encore "SP
-  Pacy" en dur (en-tête terrain équipier, PDF de bilan, écran de choix du
-  membre) — repéré, pas corrigé.
+  pas encore été fait. En revanche, tous les **textes** UI qui affichaient
+  "SP Pacy"/"Pacy-sur-Eure" en dur (en-tête terrain équipier, export PDF du
+  bilan, fiche secteur imprimable, écran de choix du membre) ont été
+  corrigés pour utiliser `APP.organisationNom` — y compris pour l'équipier
+  connecté par PIN, dont la session ne portait pas encore ce nom (ajout
+  d'une clé `sessionStorage.organisationNom`, alimentée à la connexion et
+  restaurée/nettoyée comme `equipe`/`membre`).
 - Le nom/logo de la caserne **est** déjà dynamique dans la barre latérale
   admin (`APP.organisationNom`, mis à jour à la connexion/au changement de
   caserne) et dans la grille de choix de caserne (logo ou initiales de
@@ -173,16 +185,15 @@ Réencodés en vrai PNG aux tailles exactes annoncées.
 
 ## Points ouverts / non tranchés
 
-- **Couleur** : le rouge exact de l'ancien logo Belenos était `#B81C1D`, le
-  rouge de l'app (`--rouge`, `theme_color`) est `#CC1D1D`. Pas encore
-  vérifié/harmonisé avec le rouge du nouveau logo Agnyra.
 - **`start_url` / `scope` / `id` du manifest** : toujours
   `/calendriers-sp-pacy-v2/`, hérité de l'ancien dépôt mono-tenant. Encore
   plus daté depuis le renommage en Agnyra — à décider avec le nouveau
   chemin/domaine de déploiement.
-- **Branding encore incohérent par endroits** : voir la liste dans l'état du
-  chantier 5 ci-dessus (terrain équipier, PDF, choix du membre disent encore
-  "Pacy").
+- **Logo de caserne toujours figé sur celui de Pacy** (`LOGO_CASERNE_ACTUELLE`
+  dans `js/app.js`) — le champ `logoBase64` existe déjà sur les documents
+  `organisations/{slug}`, mais rien ne le lit pour l'instant. Reste à faire
+  le jour où Ezy/Saint-André (ou une autre caserne) fournissent un vrai
+  logo.
 
 ## Structure du code
 

@@ -3,7 +3,7 @@
 // Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
-const VERSION       = "v3-4";
+const VERSION       = "v3-5";
 const CACHE_APP     = `sp-app-${VERSION}`;
 const CACHE_STATIC  = "sp-static-4";
 const CACHE_RUNTIME = "sp-runtime-v1";

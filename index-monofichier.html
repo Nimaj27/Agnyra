@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#CC1D1D">
+  <meta name="theme-color" content="#E50410">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Agnyra">
@@ -16,8 +16,8 @@
   <link rel="apple-touch-icon" sizes="152x152" href="./icons/icon152.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <style>/* ============================================================
-   style.css — Design mobile-first Amicale SP Pacy-sur-Eure
-   Palette : rouge pompier #CC1D1D, gris ardoise #2D3142,
+   style.css — Design mobile-first Agnyra
+   Palette : rouge Agnyra #E50410, gris anthracite #2D3142,
              blanc #FFFFFF, orange alerte #F97316, vert succès #16A34A
    ============================================================ */
 
@@ -25,10 +25,10 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  /* Couleurs SDIS */
-  --rouge:       #CC1D1D;
-  --rouge-dark:  #A01515;
-  --rouge-light: #FDECEA;
+  /* Couleurs Agnyra (rouge repris du logo) */
+  --rouge:       #E50410;
+  --rouge-dark:  #A0151C;
+  --rouge-light: #FDEAEB;
   --ardoise:     #2D3142;
   --ardoise-mid: #4A4E6A;
   --ardoise-light: #E8E9EF;
@@ -131,7 +131,7 @@ body {
   transition: border-color .15s, box-shadow .15s;
   -webkit-appearance: none;
 }
-.input:focus { outline: none; border-color: var(--rouge); box-shadow: 0 0 0 3px rgba(204,29,29,.12); }
+.input:focus { outline: none; border-color: var(--rouge); box-shadow: 0 0 0 3px rgba(229,4,16,.12); }
 .input.textarea { resize: vertical; min-height: 80px; }
 .input--sm { padding: var(--sp-2) var(--sp-3); font-size: .85rem; }
 .input--color { padding: var(--sp-2); height: 42px; cursor: pointer; }
@@ -656,8 +656,8 @@ body {
 }
 .btn-vocal--active .btn-vocal-icon { animation: bounce-mic .8s infinite; }
 @keyframes pulse-vocal {
-  0%,100% { box-shadow: 0 0 0 0 rgba(204,29,29,.5); }
-  50%     { box-shadow: 0 0 0 12px rgba(204,29,29,0); }
+  0%,100% { box-shadow: 0 0 0 0 rgba(229,4,16,.5); }
+  50%     { box-shadow: 0 0 0 12px rgba(229,4,16,0); }
 }
 @keyframes bounce-mic {
   0%,100% { transform: scale(1); }
@@ -2364,7 +2364,7 @@ export async function afficherSecteurUnique(map, secteur) {
     geojson = await fetchContourCommune(codeInsee);
   }
   if (!geojson) return null;
-  const couleur=secteur.couleur||"#CC1D1D";
+  const couleur=secteur.couleur||"#E50410";
   const layer=L.geoJSON(geojson,{style:{color:couleur,weight:3,fillColor:couleur,fillOpacity:0.3}});
   layer.addTo(map);
   const bounds=layer.getBounds(); if(bounds.isValid()) map.fitBounds(bounds,{padding:[30,30]});
@@ -2664,7 +2664,7 @@ function getPodium(parEquipe) { return [...parEquipe].sort((a,b)=>b.montant-a.mo
 
 // ============================================================
 // pdf.js — Export PDF du bilan de tournée
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 // Chargement dynamique de jsPDF + autoTable (CDN, pas de dépendance serveur)
@@ -2689,7 +2689,7 @@ function chargerJsPDF() {
   return _pdfLoading;
 }
 
-const COULEUR_ROUGE = [204, 29, 29];
+const COULEUR_ROUGE = [229, 4, 16];
 const COULEUR_ARDOISE = [45, 49, 66];
 const COULEUR_GRIS = [120, 125, 140];
 
@@ -2702,8 +2702,9 @@ function fmtEuro(v) {
 // secteurs : liste des secteurs
 // passages : liste des passages
 // logoBase64 : data URI du logo (optionnel)
+// organisationNom : nom de la caserne (optionnel, affiché dans l'en-tête et le pied de page)
 // config : config de la tournée (année, objectif...)
-async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = null, config = {} }) {
+async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = null, organisationNom = null, config = {} }) {
   await chargerJsPDF();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -2724,7 +2725,7 @@ async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = null, c
   doc.setFont("helvetica", "normal");
   doc.setFontSize(11);
   doc.setTextColor(...COULEUR_ARDOISE);
-  doc.text("Amicale des Sapeurs-Pompiers de Pacy-sur-Eure", logoBase64 ? 42 : 15, y + 15);
+  doc.text(organisationNom || "Amicale des Sapeurs-Pompiers", logoBase64 ? 42 : 15, y + 15);
   doc.setFontSize(9);
   doc.setTextColor(...COULEUR_GRIS);
   doc.text(`Saison ${annee}  -  Edite le ${dateEdition}`, logoBase64 ? 42 : 15, y + 21);
@@ -2864,7 +2865,7 @@ async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = null, c
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(...COULEUR_GRIS);
-    doc.text("Amicale des Sapeurs-Pompiers de Pacy-sur-Eure  -  SDIS 27", 15, pageH - 10);
+    doc.text(organisationNom || "Amicale des Sapeurs-Pompiers", 15, pageH - 10);
     doc.text(`Page ${i} / ${nbPages}`, pageW - 15, pageH - 10, { align: "right" });
   }
 
@@ -2882,7 +2883,7 @@ async function telechargerBilanPDF(params) {
 
 // ============================================================
 // vocal.js — Reconnaissance vocale pour la saisie terrain
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 // Vérifie la disponibilité de l'API Web Speech
@@ -3036,7 +3037,7 @@ function normRueG(s) {
 
 // ============================================================
 // geoloc.js — Auto-remplissage d'adresse par géolocalisation
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // Données : Base Adresse Nationale (10 007 adresses géolocalisées)
 // ============================================================
 
@@ -3264,7 +3265,7 @@ function ruesDuSecteur(secteur) {
 
 // ============================================================
 // install.js — Invitation à installer l'application (PWA)
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 const CLE_INSTALL_REFUS = "sp_install_refuse";
@@ -3361,7 +3362,7 @@ window.addEventListener('appinstalled', () => {
 
 // ============================================================
 // maj.js — Détection et application des mises à jour
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 let _registration = null;
@@ -3442,7 +3443,7 @@ window.__surveillerMAJ = surveillerMiseAJour;
 
 // ============================================================
 // notifications.js — Notifications locales (résumé quotidien)
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
 
@@ -3606,7 +3607,7 @@ async function envoyerResumeMaintenant(getDonnees, iconeBase64 = null) {
 
 // ============================================================
 // journal.js — Journal des modifications
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 //
 // Trace les corrections et suppressions de passages : qui, quoi, quand.
 // Utile en cas d'écart constaté au moment des comptes.
@@ -3896,6 +3897,7 @@ onAuth(async (user) => {
         APP.equipeId  = eq.id;
         APP.equipeNom = eq.nom;
         definirOrganisationApp(eq.organisationId || null);
+        APP.organisationNom = sessionStorage.getItem("organisationNom") || null;
         APP.membre    = sessionStorage.getItem("membre") || null;
         naviguer("#terrain");
         return;
@@ -4126,7 +4128,9 @@ function bindLoginEvents() {
             APP.equipeId  = equipe.id;
             APP.equipeNom = equipe.nom;
             definirOrganisationApp(equipe.organisationId || orgIdentifiee.slug);
+            APP.organisationNom = orgIdentifiee.nom || null;
             sessionStorage.setItem("equipe", JSON.stringify(equipe));
+            sessionStorage.setItem("organisationNom", APP.organisationNom || "");
             // Si l'équipe a plusieurs membres, demander qui se connecte
             const membres = (equipe.membres || []).filter(Boolean);
             if (membres.length > 1) {
@@ -4228,7 +4232,7 @@ function afficherChoixMembre(equipe, membres) {
     <div class="login-wrap">
       <div class="login-card">
         <div class="login-logo">
-          <img src="${LOGO_CASERNE_ACTUELLE}" alt="SP Pacy" style="width:64px;height:64px;object-fit:contain;border-radius:50%;">
+          <img src="${LOGO_CASERNE_ACTUELLE}" alt="${h(APP.organisationNom || 'Caserne')}" style="width:64px;height:64px;object-fit:contain;border-radius:50%;">
           <div class="login-logo-text">
             <span class="login-logo-title">${h(equipe.nom)}</span>
             <span class="login-logo-sub">Qui es-tu ?</span>
@@ -4355,6 +4359,7 @@ function bindLogout() {
     if (APP.role === "admin") await logoutGoogle();
     sessionStorage.removeItem("equipe");
     sessionStorage.removeItem("membre");
+    sessionStorage.removeItem("organisationNom");
     sessionStorage.removeItem("adminOrganisationId");
     APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.estSuperAdmin = false; APP.organisationNom = null;
     definirOrganisationApp(null);
@@ -4461,7 +4466,7 @@ async function renderDashboard() {
         fsGetAllOrg(COLLECTIONS.PASSAGES),
         lireConfig()
       ]);
-      await telechargerBilanPDF({ stats, secteurs, passages, logoBase64: LOGO_CASERNE_ACTUELLE, config: config || {} });
+      await telechargerBilanPDF({ stats, secteurs, passages, logoBase64: LOGO_CASERNE_ACTUELLE, organisationNom: APP.organisationNom, config: config || {} });
       toast("Bilan PDF téléchargé !", "success");
     } catch(e) {
       toast("Erreur PDF : " + e.message, "error");
@@ -4806,10 +4811,10 @@ window.ficheDeRoute = async (secteurId) => {
 
   /* En-tête */
   .head{display:flex;align-items:center;gap:9pt;padding-bottom:7pt;
-        border-bottom:2pt solid #CC1D1D;margin-bottom:9pt}
+        border-bottom:2pt solid #E50410;margin-bottom:9pt}
   .head img{width:38pt;height:38pt;object-fit:contain;border-radius:50%;flex-shrink:0}
   .head-txt{flex:1}
-  .head h1{font-size:17pt;font-weight:800;color:#CC1D1D;letter-spacing:-.3pt;line-height:1.1}
+  .head h1{font-size:17pt;font-weight:800;color:#E50410;letter-spacing:-.3pt;line-height:1.1}
   .head .commune{font-size:10pt;font-weight:600;color:#4A4E6A;margin-top:1pt}
   .head .amicale{font-size:7.6pt;color:#8b8f9c;margin-top:2pt;letter-spacing:.2pt;
                  text-transform:uppercase}
@@ -4824,7 +4829,7 @@ window.ficheDeRoute = async (secteurId) => {
   .kpi span{display:block;font-size:6.8pt;color:#8b8f9c;margin-top:2.5pt;
             text-transform:uppercase;letter-spacing:.3pt}
   .kpi--rouge{background:#fdecea;border-color:#f5b8b2}
-  .kpi--rouge b{color:#CC1D1D}
+  .kpi--rouge b{color:#E50410}
 
   /* Rues */
   .rue{margin-bottom:7.5pt;page-break-inside:avoid}
@@ -4877,15 +4882,15 @@ window.ficheDeRoute = async (secteurId) => {
   .ch label{font-size:7pt;color:#8b8f9c;text-transform:uppercase;letter-spacing:.3pt;
             font-weight:600}
   .ch .ln{border-bottom:.7pt solid #9aa0ad;height:16pt;margin-top:1pt}
-  .ch--tot .ln{border-bottom-width:1.4pt;border-color:#CC1D1D}
-  .ch--tot label{color:#CC1D1D;font-weight:700}
+  .ch--tot .ln{border-bottom-width:1.4pt;border-color:#E50410}
+  .ch--tot label{color:#E50410;font-weight:700}
 
   .foot{margin-top:7pt;display:flex;justify-content:space-between;
         font-size:6.8pt;color:#b4b8c2;letter-spacing:.2pt}
   @media print{.noprint{display:none!important}}
   .noprint{margin-top:14pt;text-align:center}
   .noprint button{font-family:'Inter',sans-serif;padding:9pt 22pt;font-size:10.5pt;
-    font-weight:700;background:#CC1D1D;color:#fff;border:none;border-radius:6pt;cursor:pointer}
+    font-weight:700;background:#E50410;color:#fff;border:none;border-radius:6pt;cursor:pointer}
 </style></head><body>
 
 <div class="head">
@@ -4893,7 +4898,7 @@ window.ficheDeRoute = async (secteurId) => {
   <div class="head-txt">
     <h1>${h(secteur.nom)}</h1>
     <div class="commune">${h(secteur.commune)}</div>
-    <div class="amicale">Amicale des Sapeurs-Pompiers de Pacy-sur-Eure</div>
+    <div class="amicale">${h(APP.organisationNom || 'Amicale des Sapeurs-Pompiers')}</div>
   </div>
   <div class="head-eq">
     ${secteur.equipNom ? `<strong>${h(secteur.equipNom)}</strong>` : ''}
@@ -4964,7 +4969,7 @@ ${blocs.map(b => {
 </div>
 
 <div class="foot">
-  <span>SDIS 27 · Amicale de Pacy-sur-Eure</span>
+  <span>${h(APP.organisationNom || 'Amicale des Sapeurs-Pompiers')}</span>
   <span>${h(secteur.nom)} — ${h(secteur.commune)}</span>
 </div>
 
@@ -5029,7 +5034,7 @@ function showSecteurModal(secteur = null) {
       <label class="label">Nom du secteur *</label>
       <input id="s-nom" class="input" value="${h(secteur?.nom || '')}" placeholder="Ex: Centre-ville Nord">
       <label class="label">Commune *</label>
-      <input id="s-commune" class="input" value="${h(secteur?.commune || '')}" placeholder="Ex: Pacy-sur-Eure">
+      <input id="s-commune" class="input" value="${h(secteur?.commune || '')}" placeholder="Ex: Nom de la commune">
       <label class="label">Description</label>
       <input id="s-desc" class="input" value="${h(secteur?.description || '')}" placeholder="Informations complémentaires">
       <label class="label">Rues / zones (une par ligne)</label>
@@ -6627,7 +6632,7 @@ async function renderTerrain() {
   document.getElementById("main").innerHTML = `
     <div class="terrain-layout">
       <header class="terrain-header">
-        <div class="terrain-brand">🚒 SP Pacy — Tournée Calendriers</div>
+        <div class="terrain-brand">🚒 ${h(APP.organisationNom || 'Tournée Calendriers')}</div>
         <div class="terrain-equipe">👥 ${h(APP.equipeNom)}${APP.membre ? ` · ${h(APP.membre)}` : ''}</div>
         ${renderNetworkBadge()}
         <button id="btn-mon-bilan" class="btn btn--ghost btn--sm" title="Mon bilan">📊</button>
@@ -6648,7 +6653,8 @@ async function renderTerrain() {
     stopUnsubs();
     sessionStorage.removeItem("equipe");
     sessionStorage.removeItem("membre");
-    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null;
+    sessionStorage.removeItem("organisationNom");
+    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.organisationNom = null;
     definirOrganisationApp(null);
     APP._rueActive = null;
     naviguer("#login");

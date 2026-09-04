@@ -19,7 +19,7 @@ function normRueG(s) {
 
 // ============================================================
 // geoloc.js — Auto-remplissage d'adresse par géolocalisation
-// Amicale SP Pacy-sur-Eure — Tournée Calendriers
+// Agnyra — Pilotez vos campagnes calendriers
 // Données : Base Adresse Nationale (10 007 adresses géolocalisées)
 // ============================================================
 

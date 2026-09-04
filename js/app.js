@@ -249,6 +249,7 @@ onAuth(async (user) => {
         APP.equipeId  = eq.id;
         APP.equipeNom = eq.nom;
         definirOrganisationApp(eq.organisationId || null);
+        APP.organisationNom = sessionStorage.getItem("organisationNom") || null;
         APP.membre    = sessionStorage.getItem("membre") || null;
         naviguer("#terrain");
         return;
@@ -479,7 +480,9 @@ function bindLoginEvents() {
             APP.equipeId  = equipe.id;
             APP.equipeNom = equipe.nom;
             definirOrganisationApp(equipe.organisationId || orgIdentifiee.slug);
+            APP.organisationNom = orgIdentifiee.nom || null;
             sessionStorage.setItem("equipe", JSON.stringify(equipe));
+            sessionStorage.setItem("organisationNom", APP.organisationNom || "");
             // Si l'équipe a plusieurs membres, demander qui se connecte
             const membres = (equipe.membres || []).filter(Boolean);
             if (membres.length > 1) {
@@ -581,7 +584,7 @@ function afficherChoixMembre(equipe, membres) {
     <div class="login-wrap">
       <div class="login-card">
         <div class="login-logo">
-          <img src="${LOGO_CASERNE_ACTUELLE}" alt="SP Pacy" style="width:64px;height:64px;object-fit:contain;border-radius:50%;">
+          <img src="${LOGO_CASERNE_ACTUELLE}" alt="${h(APP.organisationNom || 'Caserne')}" style="width:64px;height:64px;object-fit:contain;border-radius:50%;">
           <div class="login-logo-text">
             <span class="login-logo-title">${h(equipe.nom)}</span>
             <span class="login-logo-sub">Qui es-tu ?</span>
@@ -708,6 +711,7 @@ function bindLogout() {
     if (APP.role === "admin") await logoutGoogle();
     sessionStorage.removeItem("equipe");
     sessionStorage.removeItem("membre");
+    sessionStorage.removeItem("organisationNom");
     sessionStorage.removeItem("adminOrganisationId");
     APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.estSuperAdmin = false; APP.organisationNom = null;
     definirOrganisationApp(null);
@@ -814,7 +818,7 @@ async function renderDashboard() {
         fsGetAllOrg(COLLECTIONS.PASSAGES),
         lireConfig()
       ]);
-      await telechargerBilanPDF({ stats, secteurs, passages, logoBase64: LOGO_CASERNE_ACTUELLE, config: config || {} });
+      await telechargerBilanPDF({ stats, secteurs, passages, logoBase64: LOGO_CASERNE_ACTUELLE, organisationNom: APP.organisationNom, config: config || {} });
       toast("Bilan PDF téléchargé !", "success");
     } catch(e) {
       toast("Erreur PDF : " + e.message, "error");
@@ -1159,10 +1163,10 @@ window.ficheDeRoute = async (secteurId) => {
 
   /* En-tête */
   .head{display:flex;align-items:center;gap:9pt;padding-bottom:7pt;
-        border-bottom:2pt solid #CC1D1D;margin-bottom:9pt}
+        border-bottom:2pt solid #E50410;margin-bottom:9pt}
   .head img{width:38pt;height:38pt;object-fit:contain;border-radius:50%;flex-shrink:0}
   .head-txt{flex:1}
-  .head h1{font-size:17pt;font-weight:800;color:#CC1D1D;letter-spacing:-.3pt;line-height:1.1}
+  .head h1{font-size:17pt;font-weight:800;color:#E50410;letter-spacing:-.3pt;line-height:1.1}
   .head .commune{font-size:10pt;font-weight:600;color:#4A4E6A;margin-top:1pt}
   .head .amicale{font-size:7.6pt;color:#8b8f9c;margin-top:2pt;letter-spacing:.2pt;
                  text-transform:uppercase}
@@ -1177,7 +1181,7 @@ window.ficheDeRoute = async (secteurId) => {
   .kpi span{display:block;font-size:6.8pt;color:#8b8f9c;margin-top:2.5pt;
             text-transform:uppercase;letter-spacing:.3pt}
   .kpi--rouge{background:#fdecea;border-color:#f5b8b2}
-  .kpi--rouge b{color:#CC1D1D}
+  .kpi--rouge b{color:#E50410}
 
   /* Rues */
   .rue{margin-bottom:7.5pt;page-break-inside:avoid}
@@ -1230,15 +1234,15 @@ window.ficheDeRoute = async (secteurId) => {
   .ch label{font-size:7pt;color:#8b8f9c;text-transform:uppercase;letter-spacing:.3pt;
             font-weight:600}
   .ch .ln{border-bottom:.7pt solid #9aa0ad;height:16pt;margin-top:1pt}
-  .ch--tot .ln{border-bottom-width:1.4pt;border-color:#CC1D1D}
-  .ch--tot label{color:#CC1D1D;font-weight:700}
+  .ch--tot .ln{border-bottom-width:1.4pt;border-color:#E50410}
+  .ch--tot label{color:#E50410;font-weight:700}
 
   .foot{margin-top:7pt;display:flex;justify-content:space-between;
         font-size:6.8pt;color:#b4b8c2;letter-spacing:.2pt}
   @media print{.noprint{display:none!important}}
   .noprint{margin-top:14pt;text-align:center}
   .noprint button{font-family:'Inter',sans-serif;padding:9pt 22pt;font-size:10.5pt;
-    font-weight:700;background:#CC1D1D;color:#fff;border:none;border-radius:6pt;cursor:pointer}
+    font-weight:700;background:#E50410;color:#fff;border:none;border-radius:6pt;cursor:pointer}
 </style></head><body>
 
 <div class="head">
@@ -1246,7 +1250,7 @@ window.ficheDeRoute = async (secteurId) => {
   <div class="head-txt">
     <h1>${h(secteur.nom)}</h1>
     <div class="commune">${h(secteur.commune)}</div>
-    <div class="amicale">Amicale des Sapeurs-Pompiers de Pacy-sur-Eure</div>
+    <div class="amicale">${h(APP.organisationNom || 'Amicale des Sapeurs-Pompiers')}</div>
   </div>
   <div class="head-eq">
     ${secteur.equipNom ? `<strong>${h(secteur.equipNom)}</strong>` : ''}
@@ -1317,7 +1321,7 @@ ${blocs.map(b => {
 </div>
 
 <div class="foot">
-  <span>SDIS 27 · Amicale de Pacy-sur-Eure</span>
+  <span>${h(APP.organisationNom || 'Amicale des Sapeurs-Pompiers')}</span>
   <span>${h(secteur.nom)} — ${h(secteur.commune)}</span>
 </div>
 
@@ -1382,7 +1386,7 @@ function showSecteurModal(secteur = null) {
       <label class="label">Nom du secteur *</label>
       <input id="s-nom" class="input" value="${h(secteur?.nom || '')}" placeholder="Ex: Centre-ville Nord">
       <label class="label">Commune *</label>
-      <input id="s-commune" class="input" value="${h(secteur?.commune || '')}" placeholder="Ex: Pacy-sur-Eure">
+      <input id="s-commune" class="input" value="${h(secteur?.commune || '')}" placeholder="Ex: Nom de la commune">
       <label class="label">Description</label>
       <input id="s-desc" class="input" value="${h(secteur?.description || '')}" placeholder="Informations complémentaires">
       <label class="label">Rues / zones (une par ligne)</label>
@@ -2980,7 +2984,7 @@ async function renderTerrain() {
   document.getElementById("main").innerHTML = `
     <div class="terrain-layout">
       <header class="terrain-header">
-        <div class="terrain-brand">🚒 SP Pacy — Tournée Calendriers</div>
+        <div class="terrain-brand">🚒 ${h(APP.organisationNom || 'Tournée Calendriers')}</div>
         <div class="terrain-equipe">👥 ${h(APP.equipeNom)}${APP.membre ? ` · ${h(APP.membre)}` : ''}</div>
         ${renderNetworkBadge()}
         <button id="btn-mon-bilan" class="btn btn--ghost btn--sm" title="Mon bilan">📊</button>
@@ -3001,7 +3005,8 @@ async function renderTerrain() {
     stopUnsubs();
     sessionStorage.removeItem("equipe");
     sessionStorage.removeItem("membre");
-    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null;
+    sessionStorage.removeItem("organisationNom");
+    APP.role = null; APP.user = null; APP.equipeId = null; APP.equipeNom = null; APP.membre = null; APP.organisationNom = null;
     definirOrganisationApp(null);
     APP._rueActive = null;
     naviguer("#login");
