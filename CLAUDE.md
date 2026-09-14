@@ -211,6 +211,15 @@ Corrigé en passant ces champs en chemins relatifs (`"./"`,
 où l'appli est servie, donc plus besoin de trancher un chemin/domaine à
 l'avance.
 
+## Changelog produit (14/09)
+
+Ajout d'un lien **"Nouveautés"** dans le pied de la barre latérale admin
+(`layoutAdmin`, à côté de "Déconnexion"), qui ouvre une modale listant les
+changements notables (`CHANGELOG` dans `js/app.js`, entrée la plus récente
+en premier). Maintenu à la main — penser à ajouter une entrée à chaque
+changement visible pour l'utilisateur (pas pour du réglage interne/bug
+technique). Pas encore présent côté équipier (terrain).
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)

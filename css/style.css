@@ -369,6 +369,11 @@ body {
 .modal-inner h2 { font-size: 1.15rem; font-weight: 700; margin-bottom: var(--sp-4); }
 .modal-actions { display: flex; gap: var(--sp-3); margin-top: var(--sp-5); flex-wrap: wrap; }
 
+/* ── Changelog ───────────────────────────────────────────────── */
+.changelog-liste { list-style: none; display: flex; flex-direction: column; gap: var(--sp-4); }
+.changelog-liste li { display: flex; flex-direction: column; gap: 2px; border-left: 3px solid var(--rouge); padding-left: var(--sp-3); }
+.changelog-date { font-size: .75rem; font-weight: 700; color: var(--rouge); text-transform: uppercase; letter-spacing: .3pt; }
+
 /* ── Form card ───────────────────────────────────────────────── */
 .form-card {
   background: var(--blanc); border-radius: var(--r-lg);

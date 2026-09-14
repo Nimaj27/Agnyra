@@ -680,6 +680,38 @@ function parseCSV(text) {
   return lignes.map(parseCSVLine);
 }
 
+// ── Changelog produit ────────────────────────────────────────────
+// Maintenu à la main, entrée la plus récente en premier. Accessible depuis
+// le pied de la barre latérale admin (voir layoutAdmin/bindLogout).
+const CHANGELOG = [
+  { date: "2026-09-14", texte: "Ajout des nouveautés dans le pied de la barre latérale." },
+  { date: "2026-09-04", texte: "Déploiement automatique de l'application à chaque mise à jour (agnyra.web.app)." },
+  { date: "2026-09-04", texte: "Le logo affiché après connexion correspond désormais à la caserne connectée." },
+  { date: "2026-09-02", texte: "Nouveau nom et nouveau logo : Belenos devient Agnyra." }
+];
+
+function showChangelogModal() {
+  const modal = document.getElementById("modal-changelog");
+  if (!modal) return;
+  modal.innerHTML = `
+    <div class="modal-inner">
+      <h2>Nouveautés</h2>
+      <ul class="changelog-liste">
+        ${CHANGELOG.map(c => `
+          <li>
+            <span class="changelog-date">${h(new Date(c.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }))}</span>
+            <span>${h(c.texte)}</span>
+          </li>
+        `).join('')}
+      </ul>
+      <div class="modal-actions">
+        <button class="btn btn--ghost" onclick="closeModal()">Fermer</button>
+      </div>
+    </div>
+  `;
+  modal.classList.remove("hidden");
+}
+
 function layoutAdmin(activeHash, content) {
   const nav = [
     { hash: "#dashboard", icon: "📊", label: "Tableau de bord" },
@@ -718,12 +750,14 @@ function layoutAdmin(activeHash, content) {
         <div class="sidebar-footer">
           <span class="sidebar-user">${h(APP.user?.email || '')}</span>
           ${APP.estSuperAdmin ? `<button id="btn-changer-caserne-admin" class="btn btn--ghost btn--sm">Changer de caserne</button>` : ''}
+          <button id="btn-changelog" class="btn btn--ghost btn--sm">Nouveautés</button>
           <button id="btn-logout" class="btn btn--ghost btn--sm">Déconnexion</button>
         </div>
       </nav>
       <main class="admin-content">
         ${content}
       </main>
+      <div id="modal-changelog" class="modal hidden"></div>
     </div>
   `;
 }
@@ -733,6 +767,7 @@ function bindLogout() {
     sessionStorage.removeItem("adminOrganisationId");
     afficherChoixCaserneAdmin();
   });
+  document.getElementById("btn-changelog")?.addEventListener("click", showChangelogModal);
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
     stopUnsubs();
     if (APP.role === "admin") await logoutGoogle();
