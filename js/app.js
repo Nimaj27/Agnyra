@@ -384,13 +384,18 @@ function renderLogin() {
             <button id="btn-changer-caserne" class="btn btn--ghost btn--full" style="margin-top:var(--sp-3);">← Changer de caserne</button>
           </div>
         </div>
+
+        <button id="btn-changelog-login" class="login-changelog-link">Nouveautés <span class="changelog-version-badge">v${h(CHANGELOG[0]?.version || '')}</span></button>
       </div>
+      <div id="modal-changelog" class="modal hidden"></div>
     </div>
   `;
   bindLoginEvents();
 }
 
 function bindLoginEvents() {
+  document.getElementById("btn-changelog-login")?.addEventListener("click", showChangelogModal);
+
   // Tabs
   $$(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {

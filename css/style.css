@@ -170,6 +170,12 @@ body {
 }
 .tab-btn--active { background: var(--blanc); color: var(--ardoise); box-shadow: var(--shadow-sm); font-weight: 600; }
 .login-hint { font-size: .88rem; color: var(--ardoise-mid); margin-bottom: var(--sp-4); }
+.login-changelog-link {
+  display: block; width: 100%; margin-top: var(--sp-5); padding-top: var(--sp-4);
+  border-top: 1px solid var(--gris-bord); background: none; border-left: none; border-right: none; border-bottom: none;
+  font-family: var(--font); font-size: .78rem; color: var(--ardoise-mid); text-align: center; cursor: pointer;
+}
+.login-changelog-link:hover { color: var(--rouge); }
 
 /* PIN pad */
 .pin-display {
