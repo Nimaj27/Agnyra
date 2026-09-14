@@ -216,9 +216,16 @@ l'avance.
 Ajout d'un lien **"Nouveautés"** dans le pied de la barre latérale admin
 (`layoutAdmin`, à côté de "Déconnexion"), qui ouvre une modale listant les
 changements notables (`CHANGELOG` dans `js/app.js`, entrée la plus récente
-en premier). Maintenu à la main — penser à ajouter une entrée à chaque
-changement visible pour l'utilisateur (pas pour du réglage interne/bug
-technique). Pas encore présent côté équipier (terrain).
+en premier). Chaque entrée porte un **numéro de version produit** (`1.0`,
+`1.1`, ...) — mineur pour un changement notable, majeur pour une refonte
+importante. Ce numéro est **indépendant** du `VERSION` technique de
+`sw.js` (celui-ci est régénéré automatiquement à chaque déploiement pour
+invalider le cache PWA, même sans changement visible). La version actuelle
+(`CHANGELOG[0].version`) s'affiche à la fois sur le bouton "Nouveautés" et
+en titre de la modale. Maintenu à la main — penser à ajouter une entrée
+(avec numéro incrémenté) à chaque changement visible pour l'utilisateur
+(pas pour du réglage interne/bug technique). Pas encore présent côté
+équipier (terrain).
 
 ## Points ouverts / non tranchés
 

@@ -683,11 +683,16 @@ function parseCSV(text) {
 // ── Changelog produit ────────────────────────────────────────────
 // Maintenu à la main, entrée la plus récente en premier. Accessible depuis
 // le pied de la barre latérale admin (voir layoutAdmin/bindLogout).
+// "version" est un numéro produit indépendant du VERSION technique de
+// sw.js (celui-ci est régénéré automatiquement à chaque déploiement pour
+// invalider le cache PWA, même sans changement visible pour l'utilisateur).
+// Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
+// pour une refonte importante.
 const CHANGELOG = [
-  { date: "2026-09-14", texte: "Ajout des nouveautés dans le pied de la barre latérale." },
-  { date: "2026-09-04", texte: "Déploiement automatique de l'application à chaque mise à jour (agnyra.web.app)." },
-  { date: "2026-09-04", texte: "Le logo affiché après connexion correspond désormais à la caserne connectée." },
-  { date: "2026-09-02", texte: "Nouveau nom et nouveau logo : Belenos devient Agnyra." }
+  { version: "1.3", date: "2026-09-14", texte: "Ajout des nouveautés dans le pied de la barre latérale." },
+  { version: "1.2", date: "2026-09-04", texte: "Déploiement automatique de l'application à chaque mise à jour (agnyra.web.app)." },
+  { version: "1.1", date: "2026-09-04", texte: "Le logo affiché après connexion correspond désormais à la caserne connectée." },
+  { version: "1.0", date: "2026-09-02", texte: "Nouveau nom et nouveau logo : Belenos devient Agnyra." }
 ];
 
 function showChangelogModal() {
@@ -695,11 +700,14 @@ function showChangelogModal() {
   if (!modal) return;
   modal.innerHTML = `
     <div class="modal-inner">
-      <h2>Nouveautés</h2>
+      <h2>Nouveautés <span class="changelog-version-actuelle">v${h(CHANGELOG[0]?.version || '')}</span></h2>
       <ul class="changelog-liste">
         ${CHANGELOG.map(c => `
           <li>
-            <span class="changelog-date">${h(new Date(c.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }))}</span>
+            <span class="changelog-entete">
+              <span class="changelog-version">v${h(c.version)}</span>
+              <span class="changelog-date">${h(new Date(c.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }))}</span>
+            </span>
             <span>${h(c.texte)}</span>
           </li>
         `).join('')}
@@ -750,7 +758,7 @@ function layoutAdmin(activeHash, content) {
         <div class="sidebar-footer">
           <span class="sidebar-user">${h(APP.user?.email || '')}</span>
           ${APP.estSuperAdmin ? `<button id="btn-changer-caserne-admin" class="btn btn--ghost btn--sm">Changer de caserne</button>` : ''}
-          <button id="btn-changelog" class="btn btn--ghost btn--sm">Nouveautés</button>
+          <button id="btn-changelog" class="btn btn--ghost btn--sm">Nouveautés <span class="changelog-version-badge">v${h(CHANGELOG[0]?.version || '')}</span></button>
           <button id="btn-logout" class="btn btn--ghost btn--sm">Déconnexion</button>
         </div>
       </nav>
