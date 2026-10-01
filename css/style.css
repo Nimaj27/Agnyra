@@ -40,6 +40,7 @@
 
   /* Font */
   --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-h: 'Barlow Condensed', 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Courier New', monospace;
 }
 
@@ -53,7 +54,7 @@ body {
 }
 
 /* Google Font */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap');
 
 /* ── Utilitaires ─────────────────────────────────────────────── */
 .hidden { display: none !important; }
@@ -249,7 +250,17 @@ body {
 }
 .sidebar-link:hover { background: rgba(255,255,255,.08); color: var(--blanc); }
 .sidebar-link--active { background: var(--rouge); color: var(--blanc); }
-.sidebar-link-icon { font-size: 1.1rem; width: 20px; text-align: center; }
+.sidebar-link-icon { width: 18px; height: 18px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.sidebar-link-icon svg { width: 100%; height: 100%; }
+.sidebar-nav-section {
+  font-size: .68rem; font-weight: 700; color: rgba(255,255,255,.35);
+  text-transform: uppercase; letter-spacing: .4px;
+  padding: var(--sp-4) var(--sp-5) var(--sp-1);
+}
+.sidebar-badge {
+  margin-left: auto; background: var(--rouge); color: var(--blanc);
+  font-size: .68rem; font-weight: 700; border-radius: 99px; padding: 1px 7px;
+}
 .sidebar-footer { padding: var(--sp-4) var(--sp-5); border-top: 1px solid rgba(255,255,255,.1); }
 .sidebar-user { display: block; font-size: .78rem; color: rgba(255,255,255,.5); margin-bottom: var(--sp-2); word-break: break-all; }
 
@@ -263,7 +274,7 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: var(--sp-6); flex-wrap: wrap; gap: var(--sp-3);
 }
-.page-header h1 { font-size: 1.5rem; font-weight: 700; color: var(--ardoise); }
+.page-header h1 { font-family: var(--font-h); font-size: 2rem; font-weight: 700; color: var(--ardoise); }
 
 /* ── Stat cards ──────────────────────────────────────────────── */
 .stats-grid {
@@ -277,8 +288,8 @@ body {
 }
 .stat-card--primary { background: var(--rouge); color: var(--blanc); border-color: var(--rouge-dark); }
 .stat-card--primary .stat-label, .stat-card--primary .stat-sub { color: rgba(255,255,255,.8); }
-.stat-value { font-size: 1.6rem; font-weight: 700; line-height: 1; margin-bottom: var(--sp-1); }
-.stat-label { font-size: .85rem; font-weight: 600; color: var(--ardoise-mid); margin-bottom: var(--sp-2); }
+.stat-value { font-family: var(--font-h); font-size: 2.1rem; font-weight: 700; line-height: 1; margin-bottom: var(--sp-1); }
+.stat-label { font-size: .8rem; font-weight: 600; color: var(--ardoise-mid); margin-bottom: var(--sp-2); text-transform: uppercase; letter-spacing: .2px; }
 .stat-sub   { font-size: .78rem; color: var(--ardoise-mid); }
 
 /* Progress bar */
@@ -336,11 +347,13 @@ body {
 .secteurs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-3); }
 .secteur-card {
   background: var(--blanc); border-radius: var(--r-lg);
-  border: 1.5px solid var(--gris-bord); box-shadow: var(--shadow-sm);
+  border: 1.5px solid var(--gris-bord); border-top: 4px solid var(--gris-bord);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
-.secteur-card--termine { border-color: var(--vert); }
-.secteur-card--en_cours { border-color: var(--jaune); }
+.secteur-card--affecte { border-top-color: var(--bleu); }
+.secteur-card--en_cours { border-top-color: var(--jaune); }
+.secteur-card--termine { border-top-color: var(--vert); }
 .secteur-card-header {
   display: flex; align-items: center; gap: var(--sp-3);
   padding: var(--sp-4) var(--sp-4) var(--sp-3);
@@ -392,7 +405,14 @@ body {
 }
 
 /* ── Filter bar ──────────────────────────────────────────────── */
-.filter-bar { margin-bottom: var(--sp-4); display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+.filter-bar { margin-bottom: var(--sp-4); display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
+.filter-chips { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.filter-chip {
+  border: 1.5px solid var(--gris-bord); background: var(--blanc); color: var(--ardoise-mid);
+  border-radius: 99px; padding: 6px 14px; font-size: .78rem; font-weight: 700;
+  font-family: var(--font); cursor: pointer; transition: all .12s ease;
+}
+.filter-chip--active { background: var(--ardoise); border-color: var(--ardoise); color: var(--blanc); }
 
 /* ── Empty state ─────────────────────────────────────────────── */
 .empty-state {

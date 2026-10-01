@@ -57,6 +57,7 @@
 
   /* Font */
   --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-h: 'Barlow Condensed', 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Courier New', monospace;
 }
 
@@ -70,7 +71,7 @@ body {
 }
 
 /* Google Font */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Barlow+Condensed:wght@600;700&display=swap');
 
 /* ── Utilitaires ─────────────────────────────────────────────── */
 .hidden { display: none !important; }
@@ -266,7 +267,17 @@ body {
 }
 .sidebar-link:hover { background: rgba(255,255,255,.08); color: var(--blanc); }
 .sidebar-link--active { background: var(--rouge); color: var(--blanc); }
-.sidebar-link-icon { font-size: 1.1rem; width: 20px; text-align: center; }
+.sidebar-link-icon { width: 18px; height: 18px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.sidebar-link-icon svg { width: 100%; height: 100%; }
+.sidebar-nav-section {
+  font-size: .68rem; font-weight: 700; color: rgba(255,255,255,.35);
+  text-transform: uppercase; letter-spacing: .4px;
+  padding: var(--sp-4) var(--sp-5) var(--sp-1);
+}
+.sidebar-badge {
+  margin-left: auto; background: var(--rouge); color: var(--blanc);
+  font-size: .68rem; font-weight: 700; border-radius: 99px; padding: 1px 7px;
+}
 .sidebar-footer { padding: var(--sp-4) var(--sp-5); border-top: 1px solid rgba(255,255,255,.1); }
 .sidebar-user { display: block; font-size: .78rem; color: rgba(255,255,255,.5); margin-bottom: var(--sp-2); word-break: break-all; }
 
@@ -280,7 +291,7 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: var(--sp-6); flex-wrap: wrap; gap: var(--sp-3);
 }
-.page-header h1 { font-size: 1.5rem; font-weight: 700; color: var(--ardoise); }
+.page-header h1 { font-family: var(--font-h); font-size: 2rem; font-weight: 700; color: var(--ardoise); }
 
 /* ── Stat cards ──────────────────────────────────────────────── */
 .stats-grid {
@@ -294,8 +305,8 @@ body {
 }
 .stat-card--primary { background: var(--rouge); color: var(--blanc); border-color: var(--rouge-dark); }
 .stat-card--primary .stat-label, .stat-card--primary .stat-sub { color: rgba(255,255,255,.8); }
-.stat-value { font-size: 1.6rem; font-weight: 700; line-height: 1; margin-bottom: var(--sp-1); }
-.stat-label { font-size: .85rem; font-weight: 600; color: var(--ardoise-mid); margin-bottom: var(--sp-2); }
+.stat-value { font-family: var(--font-h); font-size: 2.1rem; font-weight: 700; line-height: 1; margin-bottom: var(--sp-1); }
+.stat-label { font-size: .8rem; font-weight: 600; color: var(--ardoise-mid); margin-bottom: var(--sp-2); text-transform: uppercase; letter-spacing: .2px; }
 .stat-sub   { font-size: .78rem; color: var(--ardoise-mid); }
 
 /* Progress bar */
@@ -353,11 +364,13 @@ body {
 .secteurs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--sp-3); }
 .secteur-card {
   background: var(--blanc); border-radius: var(--r-lg);
-  border: 1.5px solid var(--gris-bord); box-shadow: var(--shadow-sm);
+  border: 1.5px solid var(--gris-bord); border-top: 4px solid var(--gris-bord);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
-.secteur-card--termine { border-color: var(--vert); }
-.secteur-card--en_cours { border-color: var(--jaune); }
+.secteur-card--affecte { border-top-color: var(--bleu); }
+.secteur-card--en_cours { border-top-color: var(--jaune); }
+.secteur-card--termine { border-top-color: var(--vert); }
 .secteur-card-header {
   display: flex; align-items: center; gap: var(--sp-3);
   padding: var(--sp-4) var(--sp-4) var(--sp-3);
@@ -409,7 +422,14 @@ body {
 }
 
 /* ── Filter bar ──────────────────────────────────────────────── */
-.filter-bar { margin-bottom: var(--sp-4); display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+.filter-bar { margin-bottom: var(--sp-4); display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
+.filter-chips { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.filter-chip {
+  border: 1.5px solid var(--gris-bord); background: var(--blanc); color: var(--ardoise-mid);
+  border-radius: 99px; padding: 6px 14px; font-size: .78rem; font-weight: 700;
+  font-family: var(--font); cursor: pointer; transition: all .12s ease;
+}
+.filter-chip--active { background: var(--ardoise); border-color: var(--ardoise); color: var(--blanc); }
 
 /* ── Empty state ─────────────────────────────────────────────── */
 .empty-state {
@@ -4359,6 +4379,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.5", date: "2026-10-01", texte: "Nouvelle présentation de l'espace admin : navigation par icônes regroupées, filtres par statut sur les secteurs, chiffres clés plus lisibles." },
   { version: "1.4", date: "2026-10-01", texte: "Boutons de statut terrain (Don/Offert/Refus/Absent) agrandis, pour un repérage et une saisie plus faciles sur le terrain." },
   { version: "1.3", date: "2026-09-14", texte: "Ajout des nouveautés dans le pied de la barre latérale." },
   { version: "1.2", date: "2026-09-04", texte: "Déploiement automatique de l'application à chaque mise à jour (agnyra.web.app)." },
@@ -4393,16 +4414,26 @@ function showChangelogModal() {
 
 function layoutAdmin(activeHash, content) {
   const nav = [
-    { hash: "#dashboard", icon: "📊", label: "Tableau de bord" },
-    { hash: "#secteurs",  icon: "🗺️", label: "Secteurs" },
-    { hash: "#equipes",   icon: "👥", label: "Équipes" },
-    { hash: "#passages",  icon: "📋", label: "Passages" },
-    { hash: "#relances",  icon: "🔔", label: "Relances" },
-    { hash: "#historique", icon: "📅", label: "Historique" },
-    { hash: "#classement", icon: "🏆", label: "Classement" },
-    { hash: "#statistiques", icon: "📈", label: "Statistiques" },
-    { hash: "#journal",    icon: "📜", label: "Journal" },
-    { hash: "#config",    icon: "⚙️",  label: "Config" }
+    { hash: "#dashboard", label: "Tableau de bord",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>' },
+    { section: "Terrain", hash: "#secteurs", label: "Secteurs",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>' },
+    { hash: "#equipes", label: "Équipes",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.6"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M14.5 14.3c2.6.3 4.5 2.4 4.5 5.1"/></svg>' },
+    { hash: "#passages", label: "Passages",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>' },
+    { hash: "#relances", label: "Relances",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>' },
+    { section: "Suivi", hash: "#historique", label: "Historique",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>' },
+    { hash: "#classement", label: "Classement",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8M12 17v4M7 4h10l-1 6a4 4 0 0 1-8 0z"/><path d="M5 5H3v2a4 4 0 0 0 4 4M19 5h2v2a4 4 0 0 1-4 4"/></svg>' },
+    { hash: "#statistiques", label: "Statistiques",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V10M12 19V5M20 19v-7"/></svg>' },
+    { section: "Système", hash: "#journal", label: "Journal",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 4h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V8"/></svg>' },
+    { hash: "#config",    label: "Config",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>' }
   ];
   return `
     <div class="admin-layout">
@@ -4418,6 +4449,7 @@ function layoutAdmin(activeHash, content) {
         </div>
         <ul class="sidebar-nav">
           ${nav.map(n => `
+            ${n.section ? `<li class="sidebar-nav-section">${h(n.section)}</li>` : ''}
             <li>
               <a href="${n.hash}" class="sidebar-link ${activeHash === n.hash ? 'sidebar-link--active' : ''}">
                 <span class="sidebar-link-icon">${n.icon}</span>
@@ -4705,6 +4737,7 @@ async function renderSecteurs() {
     </div>
     <div class="filter-bar">
       <input id="search-secteur" class="input input--sm" placeholder="🔍 Rechercher une commune ou un secteur…" style="max-width:320px;">
+      <div id="filtres-statut-secteur" class="filter-chips"></div>
     </div>
     <div id="secteurs-list"><div class="loader">Chargement…</div></div>
     <div id="modal-secteur" class="modal hidden"></div>
@@ -4713,14 +4746,41 @@ async function renderSecteurs() {
   bindLogout();
 
   let _secteursCache = [];
+  let _filtreStatut = "tous";
 
-  document.getElementById("search-secteur")?.addEventListener("input", (e) => {
-    const q = e.target.value.trim().toLowerCase();
-    const filtered = q
-      ? _secteursCache.filter(s =>
-          s.commune.toLowerCase().includes(q) || s.nom.toLowerCase().includes(q))
-      : _secteursCache;
-    renderSecteursList(filtered);
+  function secteursFiltres() {
+    const q = document.getElementById("search-secteur")?.value.trim().toLowerCase() || '';
+    return _secteursCache.filter(s =>
+      (_filtreStatut === "tous" || s.statut === _filtreStatut) &&
+      (!q || s.commune.toLowerCase().includes(q) || s.nom.toLowerCase().includes(q))
+    );
+  }
+
+  function renderFiltresStatut() {
+    const chips = [
+      { cle: "tous", label: "Tous" },
+      { cle: "libre", label: STATUT_LABEL.libre },
+      { cle: "affecte", label: STATUT_LABEL.affecte },
+      { cle: "en_cours", label: STATUT_LABEL.en_cours },
+      { cle: "termine", label: STATUT_LABEL.termine }
+    ];
+    const zone = document.getElementById("filtres-statut-secteur");
+    if (!zone) return;
+    zone.innerHTML = chips.map(c => `
+      <button type="button" class="filter-chip ${_filtreStatut === c.cle ? 'filter-chip--active' : ''}" data-filtre="${c.cle}">${h(c.label)}</button>
+    `).join('');
+    zone.querySelectorAll(".filter-chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _filtreStatut = btn.dataset.filtre;
+        renderFiltresStatut();
+        renderSecteursList(secteursFiltres());
+      });
+    });
+  }
+  renderFiltresStatut();
+
+  document.getElementById("search-secteur")?.addEventListener("input", () => {
+    renderSecteursList(secteursFiltres());
   });
 
   document.getElementById("btn-add-secteur")?.addEventListener("click", () => showSecteurModal());
@@ -4806,11 +4866,7 @@ async function renderSecteurs() {
 
   const unsub = ecouterSecteurs((secteurs) => {
     _secteursCache = secteurs;
-    const q = document.getElementById("search-secteur")?.value.trim().toLowerCase() || '';
-    const filtered = q
-      ? secteurs.filter(s => s.commune.toLowerCase().includes(q) || s.nom.toLowerCase().includes(q))
-      : secteurs;
-    renderSecteursList(filtered);
+    renderSecteursList(secteursFiltres());
   });
   APP.unsubs.push(unsub);
 }
@@ -4820,8 +4876,12 @@ function renderSecteursList(secteurs) {
   if (!list) return;
   if (secteurs.length === 0) {
     const hasSearch = document.getElementById("search-secteur")?.value.trim();
+    const filtreActif = document.querySelector(".filter-chip--active")?.dataset.filtre;
+    const hasFiltre = filtreActif && filtreActif !== "tous";
     list.innerHTML = hasSearch
       ? `<p class="empty-state">Aucun secteur ne correspond à « ${hasSearch} ».</p>`
+      : hasFiltre
+      ? `<p class="empty-state">Aucun secteur avec ce statut.</p>`
       : `<p class="empty-state">Aucun secteur. Commence par en créer un.</p>`;
     return;
   }
