@@ -448,12 +448,14 @@ body {
 }
 .passage-statuts { display: flex; gap: var(--sp-2); }
 .statut-btn {
-  flex: 1; padding: var(--sp-3) var(--sp-2);
+  flex: 1; display: flex; align-items: center; gap: var(--sp-2);
+  padding: 13px var(--sp-3); min-height: 50px;
   border: 2px solid var(--gris-bord); border-radius: var(--r-md);
   background: none; font-family: var(--font);
-  font-size: .85rem; font-weight: 600; cursor: pointer;
-  transition: all .15s; text-align: center;
+  font-size: .85rem; font-weight: 700; cursor: pointer;
+  transition: all .15s; text-align: left;
 }
+.statut-btn-icon { font-size: 1.15rem; flex-shrink: 0; line-height: 1; }
 .statut-btn--don:hover, .statut-btn--don.statut-btn--selected { background: var(--vert-light); border-color: var(--vert); color: #14532D; }
 .statut-btn--refuse:hover, .statut-btn--refuse.statut-btn--selected { background: var(--rouge-light); border-color: var(--rouge); color: var(--rouge-dark); }
 .statut-btn--absent:hover, .statut-btn--absent.statut-btn--selected { background: var(--jaune-light); border-color: var(--jaune); color: #78350F; }

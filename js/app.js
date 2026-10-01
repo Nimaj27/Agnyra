@@ -694,6 +694,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.4", date: "2026-10-01", texte: "Boutons de statut terrain (Don/Offert/Refus/Absent) agrandis, pour un repérage et une saisie plus faciles sur le terrain." },
   { version: "1.3", date: "2026-09-14", texte: "Ajout des nouveautés dans le pied de la barre latérale." },
   { version: "1.2", date: "2026-09-04", texte: "Déploiement automatique de l'application à chaque mise à jour (agnyra.web.app)." },
   { version: "1.1", date: "2026-09-04", texte: "Le logo affiché après connexion correspond désormais à la caserne connectée." },
@@ -1990,9 +1991,9 @@ window.traiterRelance = async (passageId, secteurId) => {
       <p class="login-hint">${h(p.adresse || '(adresse non précisée)')}${p.note ? ` — ${h(p.note)}` : ''}</p>
 
       <div class="passage-statuts" style="margin:16px 0;">
-        <button class="statut-btn statut-btn--don" onclick="rlSelect('don')" data-rl="don">💰 Don</button>
-        <button class="statut-btn statut-btn--refuse" onclick="rlSelect('refuse')" data-rl="refuse">🚫 Refus</button>
-        <button class="statut-btn statut-btn--absent statut-btn--selected" onclick="rlSelect('absent')" data-rl="absent">🔔 Encore absent</button>
+        <button class="statut-btn statut-btn--don" onclick="rlSelect('don')" data-rl="don"><span class="statut-btn-icon">💰</span><span>Don</span></button>
+        <button class="statut-btn statut-btn--refuse" onclick="rlSelect('refuse')" data-rl="refuse"><span class="statut-btn-icon">🚫</span><span>Refus</span></button>
+        <button class="statut-btn statut-btn--absent statut-btn--selected" onclick="rlSelect('absent')" data-rl="absent"><span class="statut-btn-icon">🔔</span><span>Encore absent</span></button>
       </div>
 
       <div id="rl-don" class="don-details hidden">
@@ -3319,10 +3320,10 @@ async function renderTerrainPassages() {
         <input id="p-adresse" class="input" placeholder="Adresse / numéro (optionnel)" autocomplete="off">
         <div id="raccourcis-adresse" class="raccourcis-adresse hidden"></div>
         <div class="passage-statuts passage-statuts--4">
-          <button class="statut-btn statut-btn--don"   data-statut="don"    onclick="selectStatut('don')">💰 Don</button>
-          <button class="statut-btn statut-btn--offert" data-statut="offert" onclick="selectStatut('offert')">🎁 Offert</button>
-          <button class="statut-btn statut-btn--refuse" data-statut="refuse" onclick="selectStatut('refuse')">🚫 Refus</button>
-          <button class="statut-btn statut-btn--absent" data-statut="absent" onclick="selectStatut('absent')">🔔 Absent</button>
+        <button class="statut-btn statut-btn--don"   data-statut="don"    onclick="selectStatut('don')"><span class="statut-btn-icon">💰</span><span>Don</span></button>
+        <button class="statut-btn statut-btn--offert" data-statut="offert" onclick="selectStatut('offert')"><span class="statut-btn-icon">🎁</span><span>Offert</span></button>
+        <button class="statut-btn statut-btn--refuse" data-statut="refuse" onclick="selectStatut('refuse')"><span class="statut-btn-icon">🚫</span><span>Refus</span></button>
+        <button class="statut-btn statut-btn--absent" data-statut="absent" onclick="selectStatut('absent')"><span class="statut-btn-icon">🔔</span><span>Absent</span></button>
         </div>
 
         <div id="don-details" class="don-details hidden">
@@ -3708,10 +3709,10 @@ window.corrigerPassage = async (passageId, secteurId) => {
 
       <label class="label">Statut</label>
       <div class="passage-statuts" style="margin-bottom:8px;">
-        <button class="statut-btn statut-btn--don ${p.statut === 'don' ? 'statut-btn--selected' : ''}" data-cp-statut="don" onclick="cpSelectStatut('don')">💰 Don</button>
-        <button class="statut-btn statut-btn--offert ${p.statut === 'offert' ? 'statut-btn--selected' : ''}" data-cp-statut="offert" onclick="cpSelectStatut('offert')">🎁 Offert</button>
-        <button class="statut-btn statut-btn--refuse ${p.statut === 'refuse' ? 'statut-btn--selected' : ''}" data-cp-statut="refuse" onclick="cpSelectStatut('refuse')">🚫 Refus</button>
-        <button class="statut-btn statut-btn--absent ${(p.statut === 'absent' || p.statut === 'relance') ? 'statut-btn--selected' : ''}" data-cp-statut="absent" onclick="cpSelectStatut('absent')">🔔 Absent</button>
+        <button class="statut-btn statut-btn--don ${p.statut === 'don' ? 'statut-btn--selected' : ''}" data-cp-statut="don" onclick="cpSelectStatut('don')"><span class="statut-btn-icon">💰</span><span>Don</span></button>
+        <button class="statut-btn statut-btn--offert ${p.statut === 'offert' ? 'statut-btn--selected' : ''}" data-cp-statut="offert" onclick="cpSelectStatut('offert')"><span class="statut-btn-icon">🎁</span><span>Offert</span></button>
+        <button class="statut-btn statut-btn--refuse ${p.statut === 'refuse' ? 'statut-btn--selected' : ''}" data-cp-statut="refuse" onclick="cpSelectStatut('refuse')"><span class="statut-btn-icon">🚫</span><span>Refus</span></button>
+        <button class="statut-btn statut-btn--absent ${(p.statut === 'absent' || p.statut === 'relance') ? 'statut-btn--selected' : ''}" data-cp-statut="absent" onclick="cpSelectStatut('absent')"><span class="statut-btn-icon">🔔</span><span>Absent</span></button>
       </div>
 
       <div id="cp-don-details" class="don-details ${p.statut === 'don' ? '' : 'hidden'}">
