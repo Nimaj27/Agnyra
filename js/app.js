@@ -143,6 +143,13 @@ function heureLocale(iso) {
 function formatMontant(val) {
   return Number(val || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " €";
 }
+function formatMontantCourt(val) {
+  const n = Number(val || 0);
+  return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '').replace('.', ',') + 'k €' : Math.round(n) + ' €';
+}
+function initialesEquipe(nom) {
+  return (nom || '').split(/[\s&]+/).filter(Boolean).slice(0, 2).map(m => m[0]).join('').toUpperCase();
+}
 
 // ── Badge état réseau (hors-ligne / synchro) ──────────────────
 function renderNetworkBadge() {
@@ -624,10 +631,14 @@ function afficherChoixMembre(equipe, membres) {
         </div>
         <p class="login-hint">Sélectionne ton nom pour que tes saisies soient identifiées.</p>
         <div class="membres-choix">
-          ${membres.map(m => `
-            <button class="membre-btn" data-membre="${h(m)}">${h(m)}</button>
+          ${membres.map((m, i) => `
+            <button class="membre-btn" data-membre="${h(m)}">
+              <span class="avatar-initiales" style="background:${PALETTE_EQUIPES[i % PALETTE_EQUIPES.length]}">${h(initialesEquipe(m))}</span>
+              <span>${h(m)}</span>
+            </button>
           `).join('')}
         </div>
+        <button id="btn-changer-caserne-membre" class="lien-discret">← Changer de caserne</button>
       </div>
     </div>
   `;
@@ -640,6 +651,7 @@ function afficherChoixMembre(equipe, membres) {
       naviguer("#terrain");
     });
   });
+  document.getElementById("btn-changer-caserne-membre")?.addEventListener("click", () => naviguer("#login"));
 }
 
 // ════════════════════════════════════════════════════════════
@@ -694,6 +706,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.6", date: "2026-10-01", texte: "Nouvelle présentation pour Équipes, Historique, Classement, Statistiques et le choix du membre : cartes et graphiques plus lisibles, répartition par moyen de paiement ajoutée." },
   { version: "1.5", date: "2026-10-01", texte: "Nouvelle présentation de l'espace admin : navigation par icônes regroupées, filtres par statut sur les secteurs, chiffres clés plus lisibles." },
   { version: "1.4", date: "2026-10-01", texte: "Boutons de statut terrain (Don/Offert/Refus/Absent) agrandis, pour un repérage et une saisie plus faciles sur le terrain." },
   { version: "1.3", date: "2026-09-14", texte: "Ajout des nouveautés dans le pied de la barre latérale." },
@@ -1668,9 +1681,17 @@ async function renderEquipes() {
 
   const unsub = ecouterEquipes(async (equipes) => {
     // Les PIN vivent dans une collection séparée : on les rattache pour l'affichage
-    let pins = {};
+    let pins = {}, secteurs = [], stats = null;
     try { pins = await lirePins(); } catch(e) {}
-    renderEquipesList(equipes.map(e => ({ ...e, pin: pins[e.id] || e.pin || null })));
+    try { [secteurs, stats] = await Promise.all([lireSecteurs(), statsGlobalesTournee()]); } catch(e) {}
+    const ids = equipes.map(e => e.id).sort();
+    renderEquipesList(equipes.map(e => ({
+      ...e,
+      pin: pins[e.id] || e.pin || null,
+      couleur: PALETTE_EQUIPES[ids.indexOf(e.id) % PALETTE_EQUIPES.length],
+      nbSecteurs: secteurs.filter(s => s.equipeId === e.id).length,
+      montant: stats?.parEquipe.find(x => x.id === e.id)?.montant || 0
+    })));
   });
   APP.unsubs.push(unsub);
 }
@@ -1683,30 +1704,38 @@ function renderEquipesList(equipes) {
     return;
   }
   list.innerHTML = `
-    <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Équipe</th><th>PIN</th><th>Membres</th><th>Remis</th><th>Actions</th></tr></thead>
-        <tbody>
-          ${equipes.map(e => {
-            const remis = totalRemis(e);
-            const nbR = (e.remises || []).length;
-            return `
-            <tr>
-              <td><strong>${h(e.nom)}</strong></td>
-              <td>${e.pin ? `<code class="pin-code">${e.pin}</code>`
-                : '<span style="color:var(--orange);font-size:.75rem">à migrer</span>'}</td>
-              <td>${h((e.membres || []).join(', ') || '—')}</td>
-              <td>${remis > 0
-                ? `<button class="btn-remis" onclick="voirRemises('${e.id}')">${formatMontant(remis)}<small>${nbR} remise${nbR>1?'s':''}</small></button>`
-                : '<span style="color:var(--ardoise-mid);font-size:.8rem">—</span>'}</td>
-              <td class="td-actions">
-                <button class="btn btn--sm btn--ghost" onclick="editEquipe('${e.id}')">✏️</button>
-                <button class="btn btn--sm btn--danger" onclick="deleteEquipe('${e.id}')">🗑️</button>
-              </td>
-            </tr>
-          `;}).join('')}
-        </tbody>
-      </table>
+    <div class="equipes-grid">
+      ${equipes.map(e => {
+        const remis = totalRemis(e);
+        const nbR = (e.remises || []).length;
+        return `
+        <div class="equipe-carte">
+          <div class="equipe-carte-head">
+            <div class="avatar-initiales" style="background:${e.couleur}">${h(initialesEquipe(e.nom))}</div>
+            <div class="equipe-carte-id">
+              <div class="equipe-carte-nom">${h(e.nom)}</div>
+              <div class="equipe-carte-membres">${h((e.membres || []).join(' · ') || 'Aucun membre')}</div>
+            </div>
+          </div>
+          <div class="equipe-carte-body">
+            <div class="equipe-carte-ligne">
+              <span>Code PIN</span>
+              ${e.pin ? `<code class="pin-code">${e.pin}</code>` : '<span style="color:var(--orange);font-size:.75rem">à migrer</span>'}
+            </div>
+            <div class="equipe-carte-ligne"><span>Secteurs affectés</span><strong>${e.nbSecteurs}</strong></div>
+            <div class="equipe-carte-ligne">
+              <span>Collecté</span>
+              ${remis > 0
+                ? `<button class="btn-remis" onclick="voirRemises('${e.id}')">${formatMontant(e.montant)}<small>${nbR} remise${nbR>1?'s':''} · ${formatMontant(remis)} remis</small></button>`
+                : `<strong class="equipe-carte-montant">${formatMontant(e.montant)}</strong>`}
+            </div>
+          </div>
+          <div class="equipe-carte-actions">
+            <button class="btn btn--sm btn--ghost" onclick="editEquipe('${e.id}')">✏️ Modifier</button>
+            <button class="btn btn--sm btn--danger" onclick="deleteEquipe('${e.id}')">🗑️ Supprimer</button>
+          </div>
+        </div>
+      `;}).join('')}
     </div>
   `;
 }
@@ -2166,7 +2195,24 @@ async function chargerHistorique() {
     return;
   }
 
+  const parAnnee = [...saisons].sort((a, b) => a.annee - b.annee);
+  const maxMontant = Math.max(...parAnnee.map(s => s.totalCollecte), 1);
+  const derniereAnnee = parAnnee[parAnnee.length - 1]?.annee;
+
   content.innerHTML = `
+    <div class="section-block">
+      <h2>Évolution de la collecte</h2>
+      <div class="historique-chart">
+        ${parAnnee.map(s => `
+          <div class="historique-chart-col">
+            <span class="historique-chart-val">${formatMontantCourt(s.totalCollecte)}</span>
+            <div class="historique-chart-bar" style="height:${Math.round((s.totalCollecte / maxMontant) * 100)}%;background:${s.annee === derniereAnnee ? 'var(--rouge)' : 'var(--ardoise-light)'}"></div>
+            <span class="historique-chart-annee">${s.annee}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
     <div class="section-block">
       <h2>Comparer deux saisons</h2>
       <div class="filter-bar">
@@ -2184,25 +2230,21 @@ async function chargerHistorique() {
 
     <div class="section-block">
       <h2>Saisons archivées</h2>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>Année</th><th>Total collecté</th><th>Dons</th><th>Secteurs</th><th>Source</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${saisons.map(s => `
-              <tr>
-                <td><strong>${s.annee}</strong></td>
-                <td>${formatMontant(s.totalCollecte)}</td>
-                <td>${s.nbDons}</td>
-                <td>${s.nbSecteursTermines}/${s.nbSecteursTotal}</td>
-                <td>${s.saisieManuelle ? '✍️ Manuelle' : '📦 Archivée'}</td>
-                <td class="td-actions">
-                  <button class="btn btn--sm btn--ghost" onclick="voirDetailSaison(${s.annee})">👁️ Détail</button>
-                  <button class="btn btn--sm btn--danger" onclick="supprimerSaisonConfirm(${s.annee})">🗑️</button>
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+      <div class="saisons-grid">
+        ${saisons.map(s => `
+          <div class="saison-carte">
+            <div class="saison-carte-head">
+              <span class="saison-carte-annee">${s.annee}</span>
+              <span class="saison-carte-badge">${s.saisieManuelle ? '✍️ Manuelle' : '📦 Archivée'}</span>
+            </div>
+            <div class="saison-carte-montant">${formatMontant(s.totalCollecte)}</div>
+            <div class="saison-carte-sub">${s.nbDons} dons · ${s.nbSecteursTermines}/${s.nbSecteursTotal} secteurs</div>
+            <div class="saison-carte-actions">
+              <button class="btn btn--sm btn--ghost" onclick="voirDetailSaison(${s.annee})">Voir le détail →</button>
+              <button class="btn btn--sm btn--danger" onclick="supprimerSaisonConfirm(${s.annee})">🗑️</button>
+            </div>
+          </div>
+        `).join('')}
       </div>
     </div>
   `;
@@ -2529,6 +2571,21 @@ async function renderStatistiques() {
     const donMoyenGlobal = gDons > 0 ? gMontant / gDons : 0;
     const tauxRefusGlobal = gVisites > 0 ? (gRefus / gVisites) * 100 : 0;
 
+    // ── Moyens de paiement ──
+    let gEspeces = 0, gCheques = 0, gCarte = 0;
+    for (const p of passages) {
+      if (p.statut !== "don") continue;
+      if (p.modePaiement === "especes") gEspeces += Number(p.montant || 0);
+      else if (p.modePaiement === "cheque") gCheques += Number(p.montant || 0);
+      else if (p.modePaiement === "carte") gCarte += Number(p.montant || 0);
+    }
+    const totalPaiements = gEspeces + gCheques + gCarte;
+    const paiements = totalPaiements > 0 ? [
+      { label: "Espèces", montant: gEspeces, couleur: "var(--vert)" },
+      { label: "Chèque", montant: gCheques, couleur: "var(--bleu)" },
+      { label: "Carte bancaire", montant: gCarte, couleur: "var(--orange)" }
+    ].map(p => ({ ...p, pct: Math.round((p.montant / totalPaiements) * 100) })) : [];
+
     // ── Créneaux horaires ──
     const heures = Object.entries(parHeure)
       .map(([h, d]) => ({
@@ -2563,6 +2620,18 @@ async function renderStatistiques() {
           <div class="stat-label">Dons enregistrés</div>
         </div>
       </div>
+
+      ${paiements.length > 0 ? `
+      <div class="section-block">
+        <h2>Moyens de paiement</h2>
+        <div class="paiements-breakdown">
+          ${paiements.map(p => `
+            <div class="paiement-ligne">
+              <div class="paiement-ligne-top"><span>${p.label}</span><span style="color:var(--ardoise-mid)">${p.pct}% · ${formatMontant(p.montant)}</span></div>
+              <div class="paiement-bar-wrap"><div class="paiement-bar" style="width:${p.pct}%;background:${p.couleur}"></div></div>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
 
       <div class="section-block">
         <h2>Performance par secteur</h2>
@@ -4829,12 +4898,14 @@ async function renderClassement() {
     if (!content) return;
     const podium = getPodium(stats.parEquipe);
     const badgesParEquipe = calculerBadges(stats.parEquipe, secteurs, passages);
+    const ids = stats.parEquipe.map(e => e.id).sort();
+    const couleurEq = eq => PALETTE_EQUIPES[ids.indexOf(eq.id) % PALETTE_EQUIPES.length];
 
     content.innerHTML = `
       ${podium.length > 0 ? `<div class="podium-wrap">
-        ${podium[1] ? renderPodiumPlace(podium[1], 2, secteurs) : '<div></div>'}
-        ${podium[0] ? renderPodiumPlace(podium[0], 1, secteurs) : '<div></div>'}
-        ${podium[2] ? renderPodiumPlace(podium[2], 3, secteurs) : '<div></div>'}
+        ${podium[1] ? renderPodiumPlace(podium[1], 2, secteurs, couleurEq(podium[1])) : '<div></div>'}
+        ${podium[0] ? renderPodiumPlace(podium[0], 1, secteurs, couleurEq(podium[0])) : '<div></div>'}
+        ${podium[2] ? renderPodiumPlace(podium[2], 3, secteurs, couleurEq(podium[2])) : '<div></div>'}
       </div>` : '<p class="empty-state">Aucune équipe pour le moment.</p>'}
 
       <div class="section-block">
@@ -4847,6 +4918,7 @@ async function renderClassement() {
             return `<div class="ranking-card">
               <div class="ranking-card-top">
                 <span class="ranking-pos">#${i+1}</span>
+                <div class="avatar-initiales avatar-initiales--sm" style="background:${couleurEq(eq)}">${h(initialesEquipe(eq.nom))}</div>
                 <span class="ranking-nom">${h(eq.nom)}</span>
                 <span class="ranking-palier" title="${palier.label}">${palier.icone}</span>
               </div>
@@ -4879,12 +4951,13 @@ async function renderClassement() {
   APP.unsubs.push(unsub);
 }
 
-function renderPodiumPlace(eq, place, secteurs) {
+function renderPodiumPlace(eq, place, secteurs, couleur) {
   const hauteurs = { 1:"podium-place--1", 2:"podium-place--2", 3:"podium-place--3" };
   const medailles = { 1:"🥇", 2:"🥈", 3:"🥉" };
   const pct = pourcentCompletionEquipe(eq.id, secteurs);
   return `<div class="podium-place ${hauteurs[place]}">
     <div class="podium-medaille">${medailles[place]}</div>
+    <div class="avatar-initiales" style="background:${couleur};margin-bottom:var(--sp-2)">${h(initialesEquipe(eq.nom))}</div>
     <div class="podium-nom">${h(eq.nom)}</div>
     <div class="podium-montant">${formatMontant(eq.montant)}</div>
     <div class="podium-pct">${pct}%</div>

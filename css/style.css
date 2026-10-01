@@ -304,6 +304,23 @@ body {
 }
 .section-block h2 { font-size: 1.05rem; font-weight: 700; margin-bottom: var(--sp-4); }
 
+/* ── Historique : graphique & cartes de saison ──────────────────── */
+.historique-chart { display: flex; align-items: flex-end; gap: var(--sp-5); height: 160px; padding: 0 var(--sp-2); }
+.historique-chart-col { flex: 1; max-width: 72px; display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); height: 100%; justify-content: flex-end; }
+.historique-chart-val { font-family: var(--font-h); font-size: .85rem; font-weight: 700; color: var(--ardoise-mid); }
+.historique-chart-bar { width: 100%; max-width: 56px; border-radius: var(--r-sm) var(--r-sm) 0 0; min-height: 4px; }
+.historique-chart-annee { font-size: .78rem; color: var(--ardoise-mid); font-weight: 600; }
+
+.saisons-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--sp-3); }
+.saison-carte { background: var(--blanc); border-radius: var(--r-lg); border: 1px solid var(--ardoise-light); padding: var(--sp-4); }
+.saison-carte-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-2); }
+.saison-carte-annee { font-family: var(--font-h); font-size: 1.4rem; font-weight: 700; color: var(--ardoise); }
+.saison-carte-badge { font-size: .68rem; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: var(--gris-fond); color: var(--ardoise-mid); }
+.saison-carte-montant { font-family: var(--font-h); font-size: 1.5rem; font-weight: 700; color: var(--vert); }
+.saison-carte-sub { font-size: .78rem; color: var(--ardoise-mid); margin-bottom: var(--sp-3); }
+.saison-carte-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.saison-carte-actions .btn:first-child { flex: 1; }
+
 /* Ranking équipes */
 .equipes-ranking-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -316,7 +333,7 @@ body {
 .ranking-card-top { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
 .ranking-pos { font-weight: 700; color: var(--rouge); font-size: .82rem; }
 .ranking-nom { font-weight: 600; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ranking-montant { font-weight: 700; color: var(--vert); font-size: 1.1rem; margin-bottom: var(--sp-2); }
+.ranking-montant { font-family: var(--font-h); font-weight: 700; color: var(--vert); font-size: 1.25rem; margin-bottom: var(--sp-2); }
 .ranking-bar-wrap { width: 100%; height: 6px; background: var(--ardoise-light); border-radius: 99px; overflow: hidden; margin-bottom: var(--sp-1); }
 .ranking-bar { height: 100%; background: var(--rouge); border-radius: 99px; transition: width .4s; }
 .ranking-sub { font-size: .75rem; color: var(--ardoise-mid); }
@@ -340,6 +357,32 @@ body {
 .tr--absent td { border-left: 3px solid var(--jaune); }
 .td-actions { display: flex; gap: var(--sp-2); white-space: nowrap; }
 .pin-code { background: var(--gris-fond); padding: 2px 6px; border-radius: var(--r-sm); font-family: var(--font-mono); font-size: .9rem; }
+
+/* ── Équipes ─────────────────────────────────────────────────── */
+.equipes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--sp-3); }
+.equipe-carte {
+  background: var(--blanc); border-radius: var(--r-lg); border: 1px solid var(--ardoise-light);
+  overflow: hidden; transition: box-shadow .15s ease;
+}
+.equipe-carte:hover { box-shadow: var(--shadow-md); }
+.equipe-carte-head {
+  padding: var(--sp-4) var(--sp-4) var(--sp-3); border-bottom: 1px solid var(--ardoise-light);
+  display: flex; align-items: center; gap: var(--sp-3);
+}
+.avatar-initiales {
+  width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; color: var(--blanc);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-h); font-weight: 700; font-size: .95rem;
+}
+.equipe-carte-id { min-width: 0; }
+.equipe-carte-nom { font-size: .95rem; font-weight: 700; color: var(--ardoise); }
+.equipe-carte-membres { font-size: .78rem; color: var(--ardoise-mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.equipe-carte-body { padding: var(--sp-3) var(--sp-4); }
+.equipe-carte-ligne { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-2); font-size: .82rem; color: var(--ardoise-mid); font-weight: 600; }
+.equipe-carte-ligne:last-child { margin-bottom: 0; }
+.equipe-carte-montant { font-family: var(--font-h); font-size: 1.1rem; font-weight: 700; color: var(--vert); }
+.equipe-carte-actions { display: flex; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); background: var(--gris-fond); border-top: 1px solid var(--ardoise-light); }
+.equipe-carte-actions .btn { flex: 1; }
 
 /* ── Secteurs ────────────────────────────────────────────────── */
 .commune-group { margin-bottom: var(--sp-6); }
@@ -606,7 +649,8 @@ body {
 .podium-place { display:flex; flex-direction:column; align-items:center; flex:1; max-width:200px; }
 .podium-medaille { font-size:2.5rem; line-height:1; margin-bottom:var(--sp-2); }
 .podium-nom { font-size:.85rem; font-weight:700; text-align:center; margin-bottom:4px; color:var(--ardoise); }
-.podium-montant { font-size:1rem; font-weight:700; color:var(--vert); margin-bottom:2px; }
+.podium-montant { font-family:var(--font-h); font-size:1.2rem; font-weight:700; color:var(--vert); margin-bottom:2px; }
+.avatar-initiales--sm { width:26px; height:26px; font-size:.68rem; }
 .podium-pct { font-size:.75rem; color:var(--ardoise-mid); margin-bottom:var(--sp-2); }
 .podium-bloc { width:100%; border-radius:var(--r-md) var(--r-md) 0 0; display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:900; color:rgba(255,255,255,.8); }
 .podium-place--1 .podium-bloc { background:#EAB308; height:80px; }
@@ -703,14 +747,21 @@ body {
 /* ── Mode binôme : choix du membre ───────────────────────────── */
 .membres-choix { display: flex; flex-direction: column; gap: var(--sp-3); }
 .membre-btn {
-  padding: var(--sp-4); border: 2px solid var(--gris-bord);
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); border: 2px solid var(--gris-bord);
   border-radius: var(--r-md); background: var(--blanc);
   font-family: var(--font); font-size: 1rem; font-weight: 600;
   color: var(--ardoise); cursor: pointer;
-  transition: all .15s; text-align: center;
+  transition: all .15s; text-align: left;
 }
 .membre-btn:hover  { border-color: var(--rouge); background: var(--rouge-light); }
 .membre-btn:active { transform: scale(.98); }
+.lien-discret {
+  display: block; margin: var(--sp-4) auto 0; background: none; border: none;
+  color: var(--ardoise-mid); font-family: var(--font); font-size: .85rem;
+  font-weight: 600; cursor: pointer; text-align: center;
+}
+.lien-discret:hover { color: var(--rouge); }
 
 /* ── Auteur d'une saisie (mode binôme) ──────────────────────── */
 .passage-meta { display: flex; align-items: center; gap: var(--sp-2); flex-shrink: 0; }
@@ -1445,6 +1496,10 @@ body {
 .st-m-barre-zone { flex: 1; background: var(--gris-fond); border-radius: 99px; height: 18px; overflow: hidden; }
 .st-m-barre { height: 100%; background: linear-gradient(90deg, var(--vert) 0%, #16A34A 100%); border-radius: 99px; transition: width .4s; }
 .st-m-nb { font-size: .78rem; font-weight: 600; color: var(--ardoise-mid); width: 42px; flex-shrink: 0; }
+.paiements-breakdown { display: flex; flex-direction: column; gap: var(--sp-4); max-width: 480px; }
+.paiement-ligne-top { display: flex; justify-content: space-between; font-size: .85rem; font-weight: 600; color: var(--ardoise); margin-bottom: var(--sp-1); }
+.paiement-bar-wrap { height: 8px; background: var(--gris-fond); border-radius: 99px; overflow: hidden; }
+.paiement-bar { height: 100%; border-radius: 99px; transition: width .4s; }
 
 /* ── Bloc d'action destructive (page Config) ────────────────── */
 .form-card--danger {

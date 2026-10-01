@@ -227,6 +227,47 @@ en titre de la modale. Maintenu à la main — penser à ajouter une entrée
 (pas pour du réglage interne/bug technique). Pas encore présent côté
 équipier (terrain).
 
+## Design pass sur les écrans admin restants (01/10)
+
+Suite à la revue de design (Design Canvas "Revue Design Agnyra", écrans
+Équipes/Historique/Classement/Statistiques/Choix du membre/Export PDF/Fiche
+de route explorés en plus des 4 premiers), le style a été porté dans le
+vrai code pour ces écrans, **sans retirer aucune fonctionnalité réelle** :
+- **Équipes** (`renderEquipes`/`renderEquipesList`) : la table est devenue
+  une grille de cartes (`.equipes-grid`/`.equipe-carte`) — avatar à
+  initiales colorées (couleur dérivée de `PALETTE_EQUIPES`, même logique
+  que la légende de la carte), PIN en badge monospace, nombre de secteurs
+  affectés (compté depuis `lireSecteurs()`), montant collecté (depuis
+  `statsGlobalesTournee().parEquipe`, distinct du montant *remis* qui
+  reste affiché via le bouton existant quand il y a des remises).
+- **Historique** (`chargerHistorique`) : ajout d'un graphique en barres CSS
+  "Évolution de la collecte" au-dessus de l'outil de comparaison existant
+  (inchangé) ; le tableau "Saisons archivées" est devenu une grille de
+  cartes (`.saisons-grid`/`.saison-carte`), actions Détail/Suppression
+  conservées.
+- **Classement** (`renderClassement`/`renderPodiumPlace`) : podium et
+  cartes de classement existants conservés tels quels (médailles,
+  paliers, badges de gamification) — ajout d'un avatar à initiales
+  colorées par équipe (même palette que Équipes/Historique), typographie
+  des montants alignée sur `--font-h`.
+- **Statistiques** (`renderStatistiques`) : les 3 cartes de chiffres clés,
+  le graphique par créneaux horaires et les montants fréquents existaient
+  déjà dans ce style ; ajout d'une section **"Moyens de paiement"**
+  (répartition espèces/chèque/carte, calculée à partir de
+  `modePaiement` sur les passages — donnée déjà en base mais pas encore
+  affichée ici).
+- **Choix du membre** (`afficherChoixMembre`) : chaque membre a désormais
+  un avatar à initiales colorées ; ajout d'un lien discret "← Changer de
+  caserne" qui renvoie vers `#login`.
+- **Export PDF du bilan** (`pdf.js`) et **fiche de route imprimable**
+  (`window.ficheDeRoute`) : déjà alignés sur l'identité Agnyra (rouge
+  `#E50410`, même structure d'en-tête/tableaux/pied de page) — vérifiés,
+  pas de changement nécessaire.
+- Helpers partagés ajoutés dans `js/app.js` : `initialesEquipe(nom)` et
+  `formatMontantCourt(val)` (affichage compact `4,8k €` pour les
+  graphiques), réutilisés par plusieurs écrans.
+- Entrée `CHANGELOG` v1.6 ajoutée en conséquence.
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)
