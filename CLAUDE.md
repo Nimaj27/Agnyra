@@ -268,6 +268,27 @@ vrai code pour ces écrans, **sans retirer aucune fonctionnalité réelle** :
   graphiques), réutilisés par plusieurs écrans.
 - Entrée `CHANGELOG` v1.6 ajoutée en conséquence.
 
+## Numéro de passage à un foyer (02/10)
+
+Un foyer n'a toujours **qu'un seul document `passages`** (pas d'historique de
+visites en base) : une relance met à jour ce même document plutôt que d'en
+créer un nouveau. Pour que l'équipier voie quand même combien de fois un
+foyer a été visité, un compteur `nbPassages` (1 par défaut) a été ajouté sur
+le document, incrémenté **uniquement lors d'une vraie revisite** :
+- `ajouterPassage()` (`tournee.js`) pose `nbPassages:1` à la création.
+- `traiterRelance()` (résolution depuis le tableau de bord équipier,
+  toujours une revisite) incrémente systématiquement.
+- `corrigerPassage(passageId, secteurId, estRelance)` (`js/app.js`) a gagné
+  un 3ᵉ paramètre : `true` quand il est appelé depuis le bloc "À relancer"
+  (une revisite), `false`/omis depuis le bouton ✏️ de correction libre (pas
+  une revisite — ne doit pas gonfler le compteur pour une simple
+  correction de montant ou de faute de frappe).
+- Libellé centralisé : `libellePassage(n)` → "1er passage" / "2ème passage"...
+- Affiché côté équipier uniquement (terrain) : liste des passages du
+  secteur, bloc "À relancer sur ce secteur", widget "Mes foyers à relancer"
+  du tableau de bord (en exposant, discret), et en-tête des deux modales de
+  relance/correction. Rien côté admin pour l'instant (pas demandé).
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)

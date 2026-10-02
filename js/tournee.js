@@ -94,7 +94,8 @@ export async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, 
     secteurId, equipeId, equipeNom, adresse:adresse||"", statut,
     montant: statut===STATUT_PASSAGE.DON ? Number(montant) : 0,
     modePaiement: statut===STATUT_PASSAGE.DON ? modePaiement : null,
-    nomDonateur, note, saisiPar, aRelancer: statut===STATUT_PASSAGE.ABSENT, datePassage: new Date().toISOString()
+    nomDonateur, note, saisiPar, aRelancer: statut===STATUT_PASSAGE.ABSENT, datePassage: new Date().toISOString(),
+    nbPassages: 1
   });
   await recalculerTotauxSecteur(secteurId);
   return passage;

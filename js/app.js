@@ -150,6 +150,11 @@ function formatMontantCourt(val) {
 function initialesEquipe(nom) {
   return (nom || '').split(/[\s&]+/).filter(Boolean).slice(0, 2).map(m => m[0]).join('').toUpperCase();
 }
+// Libellé du Nème passage à un foyer (1er passage, 2ème passage, ...)
+function libellePassage(n) {
+  n = n || 1;
+  return n === 1 ? "1er passage" : `${n}ème passage`;
+}
 
 // ── Badge état réseau (hors-ligne / synchro) ──────────────────
 function renderNetworkBadge() {
@@ -706,6 +711,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.7", date: "2026-10-02", texte: "Le terrain affiche désormais le numéro de passage à un foyer (1er passage, 2ème passage…) : liste des passages, foyers à relancer et fenêtres de relance/correction." },
   { version: "1.6", date: "2026-10-01", texte: "Nouvelle présentation pour Équipes, Historique, Classement, Statistiques et le choix du membre : cartes et graphiques plus lisibles, répartition par moyen de paiement ajoutée." },
   { version: "1.5", date: "2026-10-01", texte: "Nouvelle présentation de l'espace admin : navigation par icônes regroupées, filtres par statut sur les secteurs, chiffres clés plus lisibles." },
   { version: "1.4", date: "2026-10-01", texte: "Boutons de statut terrain (Don/Offert/Refus/Absent) agrandis, pour un repérage et une saisie plus faciles sur le terrain." },
@@ -2057,7 +2063,9 @@ window.traiterRelance = async (passageId, secteurId) => {
   modal.innerHTML = `
     <div class="modal-inner">
       <h2>Résultat de la relance</h2>
-      <p class="login-hint">${h(p.adresse || '(adresse non précisée)')}${p.note ? ` — ${h(p.note)}` : ''}</p>
+      <p class="login-hint">${h(p.adresse || '(adresse non précisée)')}${p.note ? ` — ${h(p.note)}` : ''}
+        <span class="passage-badge-visite passage-badge-visite--revisite">${libellePassage((p.nbPassages||1) + 1)}</span>
+      </p>
 
       <div class="passage-statuts" style="margin:16px 0;">
         <button class="statut-btn statut-btn--don" onclick="rlSelect('don')" data-rl="don"><span class="statut-btn-icon">💰</span><span>Don</span></button>
@@ -2113,6 +2121,7 @@ window.traiterRelance = async (passageId, secteurId) => {
         modePaiement: st === "don" ? window._rlMode : null,
         note,
         aRelancer: st === "absent" && encore,
+        nbPassages: (p.nbPassages || 1) + 1,
         secteurId
       });
 
@@ -3231,7 +3240,7 @@ async function chargerRelancesEquipe(secteurs) {
       const num = m ? m[1].trim() : (adr || '?');
       if (!parSecteur[sid].rues[rue]) parSecteur[sid].rues[rue] = [];
       const j = p.datePassage ? Math.floor((maintenant - new Date(p.datePassage).getTime())/86400000) : null;
-      parSecteur[sid].rues[rue].push({ num, id: p.id, sid, jours: j, note: p.note || '' });
+      parSecteur[sid].rues[rue].push({ num, id: p.id, sid, jours: j, note: p.note || '', nbPassages: p.nbPassages || 1 });
     }
 
     box.innerHTML = `
@@ -3248,8 +3257,8 @@ async function chargerRelancesEquipe(secteurs) {
                 <span class="terrain-relance-rue-nom">${h(rue)}</span>
                 <span class="terrain-relance-nums">
                   ${nums.map(n => `<button class="terrain-relance-num"
-                      title="${n.jours !== null ? `absent depuis ${n.jours} j` : ''}${n.note ? ' — '+h(n.note) : ''}"
-                      onclick="traiterRelance('${n.id}','${n.sid}')">${n.num}${n.jours !== null && n.jours >= 7 ? '!' : ''}</button>`).join('')}
+                      title="${libellePassage(n.nbPassages + 1)}${n.jours !== null ? ` — absent depuis ${n.jours} j` : ''}${n.note ? ' — '+h(n.note) : ''}"
+                      onclick="traiterRelance('${n.id}','${n.sid}')">${n.num}<sup class="terrain-relance-num-sup">${n.nbPassages + 1}</sup>${n.jours !== null && n.jours >= 7 ? '!' : ''}</button>`).join('')}
                 </span>
               </div>
             `).join('')}
@@ -3749,8 +3758,9 @@ async function renderTerrainPassages() {
               .sort((a,b) => (a.adresse||'').localeCompare(b.adresse||'', 'fr', {numeric:true}))
               .map(p => {
                 const j = p.datePassage ? Math.floor((maintenant - new Date(p.datePassage).getTime())/86400000) : null;
-                return `<button class="terrain-relance-item" onclick="corrigerPassage('${p.id}','${secteurId}')">
+                return `<button class="terrain-relance-item" onclick="corrigerPassage('${p.id}','${secteurId}', true)">
                   <span class="terrain-relance-adr">${h(p.adresse || '(sans adresse)')}</span>
+                  <span class="terrain-relance-passage">→ ${libellePassage((p.nbPassages||1) + 1)}</span>
                   ${j !== null ? `<span class="terrain-relance-jours">${j} j</span>` : ''}
                 </button>`;
               }).join('')}
@@ -3770,6 +3780,7 @@ async function renderTerrainPassages() {
           <span class="passage-adresse">${h(p.adresse || '(adresse non précisée)')}</span>
           <span class="passage-badge">${STATUT_PASSAGE_LABEL[p.statut] || p.statut}</span>
           ${p.statut === 'don' ? `<span class="passage-montant">${formatMontant(p.montant)} ${p.modePaiement === 'cheque' ? '📝' : p.modePaiement === 'carte' ? '💳' : '💵'}</span>` : p.statut === 'offert' ? `<span class="passage-montant" style="color:var(--bleu)">🎁 offert</span>` : ''}
+          <span class="passage-badge-visite ${(p.nbPassages||1) > 1 ? 'passage-badge-visite--revisite' : ''}">${libellePassage(p.nbPassages)}</span>
         </div>
         <span class="passage-meta">
           ${p.saisiPar ? `<span class="passage-auteur" title="Saisi par ${p.saisiPar}">${p.saisiPar.slice(0,2).toUpperCase()}</span>` : ''}
@@ -3787,7 +3798,7 @@ async function renderTerrainPassages() {
 //  CORRECTION D'UN PASSAGE (côté équipier terrain)
 // ════════════════════════════════════════════════════════════
 
-window.corrigerPassage = async (passageId, secteurId) => {
+window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
   const passages = await passagesDuSecteur(secteurId);
   const p = passages.find(x => x.id === passageId);
   if (!p) { toast("Passage introuvable", "error"); return; }
@@ -3805,7 +3816,9 @@ window.corrigerPassage = async (passageId, secteurId) => {
   modal.innerHTML = `
     <div class="modal-inner">
       <h2>Corriger le passage</h2>
-      <p class="login-hint">Saisi à ${heure} — ${h(p.adresse || 'adresse non précisée')}</p>
+      <p class="login-hint">Saisi à ${heure} — ${h(p.adresse || 'adresse non précisée')}
+        <span class="passage-badge-visite ${estRelance ? 'passage-badge-visite--revisite' : ''}">${libellePassage(estRelance ? (p.nbPassages||1) + 1 : (p.nbPassages||1))}</span>
+      </p>
       ${(() => {
         const h = (APP._histAdresses || {})[normAdresse(p.adresse || '')];
         const r = resumeHistorique(h);
@@ -3885,6 +3898,7 @@ window.corrigerPassage = async (passageId, secteurId) => {
         nomDonateur: statut === "don" ? donateur : "",
         note,
         aRelancer: statut === "absent" ? aRelancer : false,
+        ...(estRelance ? { nbPassages: (p.nbPassages || 1) + 1 } : {}),
         secteurId
       };
       await modifierPassage(passageId, apres);
