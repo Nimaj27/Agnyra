@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Import one-off — quotas &amp; secteurs tournée 2026-27 (calendrier-pacy)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1C1F2E; }
+    button { display: block; margin: 0.5rem 0; padding: 0.6rem 1rem; font-size: .95rem; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    pre { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 6px; font-size: .82rem; }
+    .warn { background: #fff3cd; border: 1px solid #ffe08a; padding: 1rem; border-radius: 6px; }
+    .danger { background: #fdecea; border: 1px solid #f5b8b2; padding: 1rem; border-radius: 6px; }
+    table { border-collapse: collapse; width: 100%; font-size: .82rem; margin: .5rem 0 1.5rem; }
+    th, td { border: 1px solid #ddd; padding: 5px 8px; text-align: left; vertical-align: top; }
+    th { background: #f4f4f4; }
+    tr.ok       { background: #f0fdf4; }
+    tr.inchange { background: #fff; }
+    tr.absent   { background: #fdecea; }
+    tr.attente  { background: #fffbeb; }
+    .tag { display: inline-block; font-size: .72rem; font-weight: 700; padding: 1px 7px; border-radius: 99px; }
+    .tag--ok       { background: #dcfce7; color: #14532D; }
+    .tag--maj      { background: #dbeafe; color: #1e3a8a; }
+    .tag--absent   { background: #fde2e2; color: #7f1d1d; }
+    .tag--attente  { background: #fef9c3; color: #78350F; }
+  </style>
+</head>
+<body>
+  <h1>Import one-off — Tournée Calendrier 2026-27</h1>
+  <div class="warn">
+    <strong>Cible : calendrier-pacy (production réelle).</strong>
+    Ce script lit d'abord l'état actuel (secteurs, équipes, pins) sans rien écrire
+    (étape 2), affiche un tableau détaillé de ce qu'il ferait, puis n'écrit
+    qu'à l'étape 3 — rien n'est appliqué sans que tu aies vu l'aperçu complet.
+  </div>
+  <div class="danger">
+    <strong>Ce que ce script NE fait PAS :</strong>
+    <ul>
+      <li>Il ne crée jamais de nouveau <em>secteur</em> — un secteur de la feuille
+        introuvable dans la base est juste signalé, à toi de le créer/renommer à la main.</li>
+      <li>Il ne touche pas au <code>statut</code> des secteurs ni aux passages —
+        la remise à zéro de la saison se fait séparément, via
+        « Archiver la saison en cours » dans Historique, quand tu es prêt(e).</li>
+      <li>Il ne désaffecte jamais une équipe automatiquement, même sur un secteur
+        marqué « libéré » dans la feuille — juste un avertissement si ça ne correspond
+        pas à ce qui est déjà en base.</li>
+    </ul>
+  </div>
+
+  <p><strong>Règle appliquée</strong> (d'après la feuille <em>Proposition secteur 2026-27</em>) :
+    fond blanc/gris (+ « Oui ») = confirmé · <span style="color:#16A34A;font-weight:700">vert</span> = nouvelle
+    demande (retenue) · <span style="color:#B91C1C;font-weight:700">rouge</span> = ligne sans nom, secteur
+    libéré (aucune équipe ajoutée depuis cette ligne) · <span style="color:#92400E;font-weight:700">jaune/orange</span>
+    = en attente, <strong>exclu de l'import</strong> (Colley Matthieu ×2, Lelièvre Morgan — à trancher à la main).</p>
+
+  <h2>Étape 1 — Connexion admin</h2>
+  <button id="btn-login">1. Se connecter sur calendrier-pacy</button>
+  <div id="qui-suis-je"></div>
+
+  <h2>Étape 2 — Aperçu (lecture seule)</h2>
+  <button id="btn-preview" disabled>2. Comparer la feuille à la base</button>
+  <div id="resultat"></div>
+
+  <h2>Étape 3 — Application</h2>
+  <button id="btn-appliquer" disabled>3. Appliquer les lignes prêtes (quotas + nouvelles équipes)</button>
+
+  <pre id="log"></pre>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+    import {
+      getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc
+    } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+    import {
+      getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged
+    } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+
+    const CONFIG = {
+      apiKey:            "AIzaSyCj7etN5gV8CckkOBiFaKn38D_onZCIE2A",
+      authDomain:        "calendrier-pacy.firebaseapp.com",
+      projectId:         "calendrier-pacy",
+      storageBucket:     "calendrier-pacy.firebasestorage.app",
+      messagingSenderId: "767402684897",
+      appId:             "1:767402684897:web:134c456b1de29b2dace2a0"
+    };
+
+    const app  = initializeApp(CONFIG);
+    const db   = getFirestore(app);
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
+
+    const log = (msg) => {
+      document.getElementById("log").textContent += msg + "\n";
+      console.log(msg);
+    };
+
+    // ── Données transcrites de « Proposition secteur 2026-27 » ──────────
+    // couleur: confirme | nouveau | libere | attente
+    const LIGNES = [
+      { nom:"Pierrache", prenom:"Fabien", secteur:"Aigleville", quota:80, couleur:"confirme" },
+      { nom:"Hoareau", prenom:"David", secteur:"Boisset / le plessis", quota:80, couleur:"nouveau" },
+      { nom:"Cerezales", prenom:"Manon", secteur:"Boisset / Le Plessis", quota:150, couleur:"confirme" },
+      { nom:"Martin", prenom:"Eric", secteur:"Boncourt / Hardencourt", quota:90, couleur:"confirme" },
+      { nom:"Ferreira", prenom:"Marco", secteur:"Breuilpont", quota:240, couleur:"confirme" },
+      { nom:"Hertout", prenom:"Franck", secteur:"Breuilpont", quota:240, couleur:"confirme" },
+      { nom:null, prenom:null, secteur:"Breuilpont", quota:240, couleur:"libere" },
+      { nom:"Guilmin", prenom:"Alexandre", secteur:"Caillouet / Ruffey / La roche", quota:90, couleur:"confirme" },
+      { nom:"Patin", prenom:"Nelson", secteur:"Croisy-sur-Eure/Chaignes", quota:100, couleur:"confirme" },
+      { nom:"Corbeau", prenom:"Didier", secteur:"Douains", quota:120, couleur:"nouveau" },
+      { nom:"Sy", prenom:"Benjamin", secteur:"Fains / noé", quota:90, couleur:"confirme" },
+      { nom:"Coupel", prenom:"Lolita", secteur:"Fontaine Sous Jouy", quota:120, couleur:"nouveau" },
+      { nom:"Agningora", prenom:"Beranger", secteur:"Fontaine sous Jouy", quota:120, couleur:"confirme" },
+      { nom:"Marin-dit-vigot", prenom:"Ludovic", secteur:"Gadencourt", quota:90, couleur:"confirme" },
+      { nom:"Guillard", prenom:"Benjamin", secteur:"Hécourt", quota:70, couleur:"confirme" },
+      { nom:"Delafosse", prenom:"Christopher", secteur:"Houlbec Cocherel", quota:240, couleur:"confirme" },
+      { nom:"Levillain", prenom:"David", secteur:"Houlbec Cocherel", quota:240, couleur:"confirme" },
+      { nom:null, prenom:null, secteur:"Houlbec Cocherel", quota:240, couleur:"libere" },
+      { nom:"Dubuc", prenom:"Guillaume", secteur:"Jouy-sur-Eure+ Les hameaux", quota:150, couleur:"confirme" },
+      { nom:"Molle", prenom:"Joan", secteur:"Jouy-sur-Eure+ Les hameaux", quota:150, couleur:"nouveau" },
+      { nom:"Lourenco", prenom:"Steven", secteur:"La Heunière", quota:90, couleur:"nouveau" },
+      { nom:null, prenom:null, secteur:"La Cormier", quota:80, couleur:"libere" },
+      { nom:"Delaporte", prenom:"Nicolas", secteur:"Ménilles 1", quota:120, couleur:"confirme" },
+      { nom:"Hamon", prenom:"Kazan", secteur:"Ménilles 1", quota:120, couleur:"confirme" },
+      { nom:"Colley", prenom:"Matthieu", secteur:"Menilles 2 + Le haut Menilles", quota:210, couleur:"attente" },
+      { nom:"Kecita", prenom:"Djemila", secteur:"Menilles 2/Haut-Menilles", quota:210, couleur:"confirme" },
+      { nom:"Correia", prenom:"Audrey", secteur:"Merey / Neuilly / Lorey", quota:110, couleur:"confirme" },
+      { nom:null, prenom:null, secteur:"Merey/Neuilly/Lorey", quota:110, couleur:"libere" },
+      { nom:"Develdere", prenom:"Aurélie", secteur:"Pacy 1", quota:180, couleur:"confirme" },
+      { nom:"Huet", prenom:"Geoffrey", secteur:"Pacy 1", quota:180, couleur:"nouveau" },
+      { nom:"Crespin", prenom:"Frédéric", secteur:"Pacy 2", quota:130, couleur:"confirme" },
+      { nom:"Travaden", prenom:"Corentin", secteur:"Pacy 2", quota:130, couleur:"confirme" },
+      { nom:"Brière", prenom:"Maxime", secteur:"Pacy 3", quota:240, couleur:"confirme" },
+      { nom:"Voisenet", prenom:"Cédric", secteur:"Pacy 3", quota:230, couleur:"confirme" },
+      { nom:null, prenom:null, secteur:"Pacy 3", quota:230, couleur:"libere" },
+      { nom:"Gauthier", prenom:"Baptiste", secteur:"Pacy 4", quota:170, couleur:"confirme" },
+      { nom:"Isabelle", prenom:"Yohann", secteur:"Pacy 4", quota:170, couleur:"confirme" },
+      { nom:"Chaussis", prenom:"Arnaud", secteur:"Pacy 5", quota:110, couleur:"confirme" },
+      { nom:"Bastiera", prenom:"Pascal", secteur:"Pacy 6", quota:110, couleur:"nouveau" },
+      { nom:"Chantrel", prenom:"Benjamin", secteur:"Pacy 7", quota:100, couleur:"confirme" },
+      { nom:"Lann", prenom:"P-A", secteur:"Pacy 8", quota:80, couleur:"confirme" },
+      { nom:"Loutsch", prenom:"Michael", secteur:"Rouvray / Chambray / Vallée bonce", quota:120, couleur:"nouveau" },
+      { nom:"Lelièvre", prenom:"Morgan", secteur:"Rouvray / Chambray / Vallée bonce", quota:120, couleur:"attente" },
+      { nom:"Laporte-Fauret", prenom:"Marine", secteur:"Saint-Aquilin", quota:100, couleur:"confirme" },
+      { nom:"Colley", prenom:"Matthieu", secteur:"Saint-Vincent-des-bois", quota:null, couleur:"attente" },
+      { nom:"Foesser", prenom:"Alexis", secteur:"Vaux-sur-Eure / cocherel / La cailleterie / Fortelle", quota:140, couleur:"confirme" },
+      { nom:"Coulibaly", prenom:"Silman", secteur:"Vaux-sur-Eure / cocherel / La cailleterie / Fortelle", quota:140, couleur:"nouveau" },
+      { nom:"Berthelot", prenom:"Aurélien", secteur:"Villegats / St Chéron", quota:90, couleur:"confirme" }
+    ];
+
+    const normalise = (s) => (s || "")
+      .toLowerCase()
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/\*/g, "")
+      .replace(/[\/+\-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    // Regroupe les lignes par secteur (clé normalisée)
+    function regrouperParSecteur(lignes) {
+      const groupes = {};
+      for (const l of lignes) {
+        const cle = normalise(l.secteur);
+        if (!groupes[cle]) groupes[cle] = { libelle: l.secteur, quota: null, membres: [], attente: [] };
+        const g = groupes[cle];
+        if (l.quota !== null && l.quota !== undefined) g.quota = l.quota;
+        if (l.couleur === "confirme" || l.couleur === "nouveau") {
+          g.membres.push({ nomComplet: `${l.prenom} ${l.nom}`, prenom: l.prenom, couleur: l.couleur });
+        } else if (l.couleur === "attente") {
+          g.attente.push(`${l.prenom} ${l.nom}`);
+        }
+      }
+      return groupes;
+    }
+
+    let utilisateur = null;
+    let planDAction = null; // calculé à l'étape 2, consommé à l'étape 3
+
+    document.getElementById("btn-login").onclick = () =>
+      signInWithPopup(auth, provider).catch(e => log("❌ Erreur connexion : " + e.message));
+
+    onAuthStateChanged(auth, (user) => {
+      utilisateur = user;
+      document.getElementById("qui-suis-je").textContent = user ? `Connecté : ${user.email}` : "Non connecté";
+      document.getElementById("btn-preview").disabled = !user;
+    });
+
+    async function lireCollection(nom) {
+      const snap = await getDocs(collection(db, nom));
+      return snap.docs.map(d => ({ id: d.id, data: d.data() }));
+    }
+
+    function genererPin(pinsExistants) {
+      let pin;
+      do { pin = String(Math.floor(1000 + Math.random() * 9000)); }
+      while (pinsExistants.has(pin));
+      pinsExistants.add(pin); // réservé immédiatement pour éviter les doublons entre deux groupes de ce run
+      return pin;
+    }
+
+    document.getElementById("btn-preview").onclick = async () => {
+      try {
+        const [secteurs, equipes, pins] = await Promise.all([
+          lireCollection("secteurs"),
+          lireCollection("equipes"),
+          lireCollection("pins")
+        ]);
+        const secteurParCle = {};
+        for (const s of secteurs) secteurParCle[normalise(s.data.nom || "")] = s;
+        const equipeParId = Object.fromEntries(equipes.map(e => [e.id, e]));
+        const pinsExistants = new Set(pins.map(p => p.id));
+
+        const groupes = regrouperParSecteur(LIGNES);
+        const actions = [];
+
+        for (const [cle, g] of Object.entries(groupes)) {
+          const secteurDoc = secteurParCle[cle];
+          if (!secteurDoc) {
+            actions.push({ type: "absent", libelle: g.libelle, quota: g.quota, membres: g.membres, attente: g.attente });
+            continue;
+          }
+          const equipeActuelle = secteurDoc.data.equipeId ? equipeParId[secteurDoc.data.equipeId] : null;
+          const membresActuels = new Set((equipeActuelle?.data.membres || []).map(m => normalise(m)));
+          const membresCibles = new Set(g.membres.map(m => normalise(m.prenom)));
+          const memeEquipe = equipeActuelle
+            && membresActuels.size === membresCibles.size
+            && [...membresCibles].every(p => membresActuels.has(p));
+          const quotaChange = g.quota !== null && Number(secteurDoc.data.objectifCalendriers || 0) !== Number(g.quota);
+
+          if (g.membres.length === 0) {
+            // Ligne "libérée" sans nom : rien à affecter — juste signaler une éventuelle
+            // incohérence si une équipe est déjà en place côté base.
+            actions.push({
+              type: "libere", libelle: g.libelle, secteurId: secteurDoc.id, quota: g.quota,
+              quotaChange, equipeActuelle: equipeActuelle?.data.nom || null, attente: g.attente
+            });
+          } else if (memeEquipe) {
+            actions.push({
+              type: "inchange", libelle: g.libelle, secteurId: secteurDoc.id, quota: g.quota,
+              quotaChange, equipeNom: equipeActuelle.data.nom, attente: g.attente
+            });
+          } else {
+            actions.push({
+              type: "nouvelle_equipe", libelle: g.libelle, secteurId: secteurDoc.id, quota: g.quota,
+              equipeActuelle: equipeActuelle?.data.nom || null,
+              nouveauxMembres: g.membres, attente: g.attente
+            });
+          }
+        }
+
+        planDAction = { actions, pinsExistants };
+
+        // ── Rendu du tableau d'aperçu ──
+        const lignesAttenteGlobal = LIGNES.filter(l => l.couleur === "attente");
+        let html = `<table><thead><tr>
+          <th>Secteur (feuille)</th><th>Action prévue</th><th>Quota</th><th>Équipe</th>
+        </tr></thead><tbody>`;
+        for (const a of actions) {
+          if (a.type === "absent") {
+            html += `<tr class="absent"><td>${a.libelle}</td>
+              <td><span class="tag tag--absent">secteur introuvable en base</span></td>
+              <td>${a.quota ?? "—"}</td>
+              <td>${a.membres.map(m => m.nomComplet).join(" &amp; ") || "—"}</td></tr>`;
+          } else if (a.type === "libere") {
+            html += `<tr class="${a.equipeActuelle ? 'attente' : 'inchange'}"><td>${a.libelle}</td>
+              <td><span class="tag ${a.equipeActuelle ? 'tag--attente' : 'tag--ok'}">
+                ${a.equipeActuelle ? '⚠️ marqué libéré mais équipe « ' + a.equipeActuelle + ' » en place — à vérifier' : 'secteur vacant, aucune équipe'}
+              </span>${a.quotaChange ? ' <span class="tag tag--maj">quota → ' + a.quota + '</span>' : ''}</td>
+              <td>${a.quota ?? "—"}</td><td>—</td></tr>`;
+          } else if (a.type === "inchange") {
+            html += `<tr class="inchange"><td>${a.libelle}</td>
+              <td><span class="tag tag--ok">équipe déjà en place</span>${a.quotaChange ? ' <span class="tag tag--maj">quota → ' + a.quota + '</span>' : ''}</td>
+              <td>${a.quota ?? "—"}</td><td>${a.equipeNom}</td></tr>`;
+          } else if (a.type === "nouvelle_equipe") {
+            html += `<tr class="ok"><td>${a.libelle}</td>
+              <td><span class="tag tag--maj">${a.equipeActuelle ? 'remplace « ' + a.equipeActuelle + ' » par' : 'nouvelle équipe'}</span></td>
+              <td>${a.quota ?? "—"}</td>
+              <td>${a.nouveauxMembres.map(m => m.nomComplet).join(" &amp; ")}</td></tr>`;
+          }
+          if (a.attente && a.attente.length) {
+            html += `<tr class="attente"><td colspan="4"><span class="tag tag--attente">en attente, exclu</span> ${a.attente.join(", ")} — ${a.libelle}</td></tr>`;
+          }
+        }
+        html += `</tbody></table>`;
+        document.getElementById("resultat").innerHTML = html;
+
+        log(`── Aperçu ──`);
+        log(`Secteurs en base : ${secteurs.length} · Équipes en base : ${equipes.length}`);
+        log(`Groupes de la feuille : ${Object.keys(groupes).length}`);
+        log(`  secteur introuvable : ${actions.filter(a=>a.type==="absent").length}`);
+        log(`  déjà en place (quota à vérifier) : ${actions.filter(a=>a.type==="inchange").length}`);
+        log(`  nouvelle équipe à créer/affecter : ${actions.filter(a=>a.type==="nouvelle_equipe").length}`);
+        log(`  libéré / vacant : ${actions.filter(a=>a.type==="libere").length}`);
+        log(`  lignes en attente (exclues) : ${lignesAttenteGlobal.length} — ${lignesAttenteGlobal.map(l=>`${l.prenom} ${l.nom} (${l.secteur})`).join(" · ")}`);
+
+        document.getElementById("btn-appliquer").disabled = false;
+      } catch (e) {
+        log("❌ Erreur lecture : " + e.message);
+      }
+    };
+
+    document.getElementById("btn-appliquer").onclick = async () => {
+      if (!planDAction) return;
+      if (!confirm("Appliquer les quotas et créer/affecter les nouvelles équipes sur calendrier-pacy ?\n\nLes lignes « secteur introuvable » et « en attente » resteront à traiter à la main.")) return;
+
+      const { actions, pinsExistants } = planDAction;
+      let nEquipesCreees = 0, nQuotasMajs = 0, nIgnorees = 0;
+
+      for (const a of actions) {
+        try {
+          if (a.type === "absent") { nIgnorees++; continue; }
+
+          if (a.type === "libere") {
+            if (a.quotaChange) {
+              await updateDoc(doc(db, "secteurs", a.secteurId), { objectifCalendriers: Number(a.quota) });
+              nQuotasMajs++;
+              log(`✅ ${a.libelle} : quota mis à jour (${a.quota})`);
+            }
+            continue;
+          }
+
+          if (a.type === "inchange") {
+            if (a.quotaChange) {
+              await updateDoc(doc(db, "secteurs", a.secteurId), { objectifCalendriers: Number(a.quota) });
+              nQuotasMajs++;
+              log(`✅ ${a.libelle} : quota mis à jour (${a.quota}), équipe « ${a.equipeNom} » inchangée`);
+            } else {
+              log(`– ${a.libelle} : rien à faire`);
+            }
+            continue;
+          }
+
+          if (a.type === "nouvelle_equipe") {
+            const nomEquipe = a.nouveauxMembres.map(m => m.nomComplet).join(" & ");
+            const membres = a.nouveauxMembres.map(m => m.prenom);
+            const equipeRef = doc(collection(db, "equipes"));
+            await setDoc(equipeRef, { nom: nomEquipe, membres });
+
+            const pin = genererPin(pinsExistants);
+            await setDoc(doc(db, "pins", pin), { equipeId: equipeRef.id, nom: nomEquipe });
+
+            await updateDoc(doc(db, "secteurs", a.secteurId), {
+              equipeId: equipeRef.id,
+              equipNom: nomEquipe,
+              ...(a.quota !== null ? { objectifCalendriers: Number(a.quota) } : {})
+            });
+
+            nEquipesCreees++;
+            log(`✅ ${a.libelle} : équipe « ${nomEquipe} » créée (PIN ${pin}) et affectée${a.quota !== null ? `, quota ${a.quota}` : ''}`);
+          }
+        } catch (e) {
+          log(`❌ ${a.libelle} : erreur — ${e.message}`);
+        }
+      }
+
+      log(`── Terminé : ${nEquipesCreees} équipe(s) créée(s), ${nQuotasMajs} quota(s) mis à jour, ${nIgnorees} secteur(s) introuvable(s) ignoré(s). ──`);
+      log(`Rappel : lignes en attente (Colley Matthieu ×2, Lelièvre Morgan) non traitées — à trancher puis relancer ce script, ou à saisir à la main dans l'app.`);
+    };
+  </script>
+</body>
+</html>
