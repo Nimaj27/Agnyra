@@ -48,8 +48,8 @@
 
   <p><strong>Règle appliquée</strong> (d'après la feuille <em>Proposition secteur 2026-27</em>) :
     fond blanc/gris (+ « Oui ») = confirmé · <span style="color:#16A34A;font-weight:700">vert</span> = nouvelle
-    demande (retenue) · <span style="color:#B91C1C;font-weight:700">rouge</span> = ligne sans nom, secteur
-    libéré (aucune équipe ajoutée depuis cette ligne) · <span style="color:#92400E;font-weight:700">jaune/orange</span>
+    demande (retenue) · <span style="color:#B91C1C;font-weight:700">rouge</span> = place libre à pourvoir
+    (ligne sans nom : personne dessus, ex. Breuilpont = secteur à trois dont deux places occupées) · <span style="color:#92400E;font-weight:700">jaune/orange</span>
     = en attente, <strong>exclu de l'import</strong> (Colley Matthieu ×2, Lelièvre Morgan — à trancher à la main).</p>
   <p><strong>Reportés :</strong> les secteurs <em>Pacy 1 à 8</em> et <em>Ménilles</em> sont exclus de ce passage
     (limites de rues pas encore confirmées) — ils seront traités dans un second temps, une fois la liste des rues reçue.</p>
@@ -161,13 +161,15 @@
       const groupes = {};
       for (const l of lignes) {
         const cle = normalise(l.secteur);
-        if (!groupes[cle]) groupes[cle] = { libelle: l.secteur, quota: null, membres: [], attente: [] };
+        if (!groupes[cle]) groupes[cle] = { libelle: l.secteur, quota: null, membres: [], attente: [], placesLibres: 0 };
         const g = groupes[cle];
         if (l.quota !== null && l.quota !== undefined) g.quota = l.quota;
         if (l.couleur === "confirme" || l.couleur === "nouveau") {
           g.membres.push({ nomComplet: `${l.prenom} ${l.nom}`, prenom: l.prenom, couleur: l.couleur });
         } else if (l.couleur === "attente") {
           g.attente.push(`${l.prenom} ${l.nom}`);
+        } else if (l.couleur === "libere") {
+          g.placesLibres++;
         }
       }
       return groupes;
@@ -218,12 +220,12 @@
 
         for (const [cle, g] of Object.entries(groupes)) {
           if (EST_REPORTE(cle)) {
-            actions.push({ type: "reporte", libelle: g.libelle, quota: g.quota, membres: g.membres, attente: g.attente });
+            actions.push({ type: "reporte", libelle: g.libelle, quota: g.quota, membres: g.membres, attente: g.attente, placesLibres: g.placesLibres });
             continue;
           }
           const secteurDoc = secteurParCle[cle];
           if (!secteurDoc) {
-            actions.push({ type: "absent", libelle: g.libelle, quota: g.quota, membres: g.membres, attente: g.attente });
+            actions.push({ type: "absent", libelle: g.libelle, quota: g.quota, membres: g.membres, attente: g.attente, placesLibres: g.placesLibres });
             continue;
           }
           const equipeActuelle = secteurDoc.data.equipeId ? equipeParId[secteurDoc.data.equipeId] : null;
@@ -239,18 +241,18 @@
             // incohérence si une équipe est déjà en place côté base.
             actions.push({
               type: "libere", libelle: g.libelle, secteurId: secteurDoc.id, quota: g.quota,
-              quotaChange, equipeActuelle: equipeActuelle?.data.nom || null, attente: g.attente
+              quotaChange, equipeActuelle: equipeActuelle?.data.nom || null, attente: g.attente, placesLibres: g.placesLibres
             });
           } else if (memeEquipe) {
             actions.push({
               type: "inchange", libelle: g.libelle, secteurId: secteurDoc.id, quota: g.quota,
-              quotaChange, equipeNom: equipeActuelle.data.nom, attente: g.attente
+              quotaChange, equipeNom: equipeActuelle.data.nom, attente: g.attente, placesLibres: g.placesLibres
             });
           } else {
             actions.push({
               type: "nouvelle_equipe", libelle: g.libelle, secteurId: secteurDoc.id, quota: g.quota,
               equipeActuelle: equipeActuelle?.data.nom || null,
-              nouveauxMembres: g.membres, attente: g.attente
+              nouveauxMembres: g.membres, attente: g.attente, placesLibres: g.placesLibres
             });
           }
         }
@@ -289,6 +291,9 @@
               <td>${a.quota ?? "—"}</td>
               <td>${a.nouveauxMembres.map(m => m.nomComplet).join(" &amp; ")}</td></tr>`;
           }
+          if (a.placesLibres) {
+            html += `<tr class="attente"><td colspan="4"><span class="tag tag--attente">${a.placesLibres} place${a.placesLibres > 1 ? 's' : ''} libre${a.placesLibres > 1 ? 's' : ''}</span> ${a.libelle} — à pourvoir</td></tr>`;
+          }
           if (a.attente && a.attente.length) {
             html += `<tr class="attente"><td colspan="4"><span class="tag tag--attente">en attente, exclu</span> ${a.attente.join(", ")} — ${a.libelle}</td></tr>`;
           }
@@ -304,6 +309,7 @@
         log(`  déjà en place (quota à vérifier) : ${actions.filter(a=>a.type==="inchange").length}`);
         log(`  nouvelle équipe à créer/affecter : ${actions.filter(a=>a.type==="nouvelle_equipe").length}`);
         log(`  libéré / vacant : ${actions.filter(a=>a.type==="libere").length}`);
+        log(`  places libres à pourvoir (hors Pacy/Ménilles) : ${actions.filter(a=>a.type!=="reporte").reduce((n,a)=>n+(a.placesLibres||0),0)}`);
         log(`  lignes en attente (exclues) : ${lignesAttenteGlobal.length} — ${lignesAttenteGlobal.map(l=>`${l.prenom} ${l.nom} (${l.secteur})`).join(" · ")}`);
 
         document.getElementById("btn-appliquer").disabled = false;
