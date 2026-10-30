@@ -211,6 +211,84 @@ Corrigé en passant ces champs en chemins relatifs (`"./"`,
 où l'appli est servie, donc plus besoin de trancher un chemin/domaine à
 l'avance.
 
+## Changelog produit (14/09)
+
+Ajout d'un lien **"Nouveautés"** dans le pied de la barre latérale admin
+(`layoutAdmin`, à côté de "Déconnexion"), qui ouvre une modale listant les
+changements notables (`CHANGELOG` dans `js/app.js`, entrée la plus récente
+en premier). Chaque entrée porte un **numéro de version produit** (`1.0`,
+`1.1`, ...) — mineur pour un changement notable, majeur pour une refonte
+importante. Ce numéro est **indépendant** du `VERSION` technique de
+`sw.js` (celui-ci est régénéré automatiquement à chaque déploiement pour
+invalider le cache PWA, même sans changement visible). La version actuelle
+(`CHANGELOG[0].version`) s'affiche à la fois sur le bouton "Nouveautés" et
+en titre de la modale. Maintenu à la main — penser à ajouter une entrée
+(avec numéro incrémenté) à chaque changement visible pour l'utilisateur
+(pas pour du réglage interne/bug technique). Pas encore présent côté
+équipier (terrain).
+
+## Design pass sur les écrans admin restants (01/10)
+
+Suite à la revue de design (Design Canvas "Revue Design Agnyra", écrans
+Équipes/Historique/Classement/Statistiques/Choix du membre/Export PDF/Fiche
+de route explorés en plus des 4 premiers), le style a été porté dans le
+vrai code pour ces écrans, **sans retirer aucune fonctionnalité réelle** :
+- **Équipes** (`renderEquipes`/`renderEquipesList`) : la table est devenue
+  une grille de cartes (`.equipes-grid`/`.equipe-carte`) — avatar à
+  initiales colorées (couleur dérivée de `PALETTE_EQUIPES`, même logique
+  que la légende de la carte), PIN en badge monospace, nombre de secteurs
+  affectés (compté depuis `lireSecteurs()`), montant collecté (depuis
+  `statsGlobalesTournee().parEquipe`, distinct du montant *remis* qui
+  reste affiché via le bouton existant quand il y a des remises).
+- **Historique** (`chargerHistorique`) : ajout d'un graphique en barres CSS
+  "Évolution de la collecte" au-dessus de l'outil de comparaison existant
+  (inchangé) ; le tableau "Saisons archivées" est devenu une grille de
+  cartes (`.saisons-grid`/`.saison-carte`), actions Détail/Suppression
+  conservées.
+- **Classement** (`renderClassement`/`renderPodiumPlace`) : podium et
+  cartes de classement existants conservés tels quels (médailles,
+  paliers, badges de gamification) — ajout d'un avatar à initiales
+  colorées par équipe (même palette que Équipes/Historique), typographie
+  des montants alignée sur `--font-h`.
+- **Statistiques** (`renderStatistiques`) : les 3 cartes de chiffres clés,
+  le graphique par créneaux horaires et les montants fréquents existaient
+  déjà dans ce style ; ajout d'une section **"Moyens de paiement"**
+  (répartition espèces/chèque/carte, calculée à partir de
+  `modePaiement` sur les passages — donnée déjà en base mais pas encore
+  affichée ici).
+- **Choix du membre** (`afficherChoixMembre`) : chaque membre a désormais
+  un avatar à initiales colorées ; ajout d'un lien discret "← Changer de
+  caserne" qui renvoie vers `#login`.
+- **Export PDF du bilan** (`pdf.js`) et **fiche de route imprimable**
+  (`window.ficheDeRoute`) : déjà alignés sur l'identité Agnyra (rouge
+  `#E50410`, même structure d'en-tête/tableaux/pied de page) — vérifiés,
+  pas de changement nécessaire.
+- Helpers partagés ajoutés dans `js/app.js` : `initialesEquipe(nom)` et
+  `formatMontantCourt(val)` (affichage compact `4,8k €` pour les
+  graphiques), réutilisés par plusieurs écrans.
+- Entrée `CHANGELOG` v1.6 ajoutée en conséquence.
+
+## Numéro de passage à un foyer (02/10)
+
+Un foyer n'a toujours **qu'un seul document `passages`** (pas d'historique de
+visites en base) : une relance met à jour ce même document plutôt que d'en
+créer un nouveau. Pour que l'équipier voie quand même combien de fois un
+foyer a été visité, un compteur `nbPassages` (1 par défaut) a été ajouté sur
+le document, incrémenté **uniquement lors d'une vraie revisite** :
+- `ajouterPassage()` (`tournee.js`) pose `nbPassages:1` à la création.
+- `traiterRelance()` (résolution depuis le tableau de bord équipier,
+  toujours une revisite) incrémente systématiquement.
+- `corrigerPassage(passageId, secteurId, estRelance)` (`js/app.js`) a gagné
+  un 3ᵉ paramètre : `true` quand il est appelé depuis le bloc "À relancer"
+  (une revisite), `false`/omis depuis le bouton ✏️ de correction libre (pas
+  une revisite — ne doit pas gonfler le compteur pour une simple
+  correction de montant ou de faute de frappe).
+- Libellé centralisé : `libellePassage(n)` → "1er passage" / "2ème passage"...
+- Affiché côté équipier uniquement (terrain) : liste des passages du
+  secteur, bloc "À relancer sur ce secteur", widget "Mes foyers à relancer"
+  du tableau de bord (en exposant, discret), et en-tête des deux modales de
+  relance/correction. Rien côté admin pour l'instant (pas demandé).
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)
@@ -248,19 +326,21 @@ regénérer le monofichier avant de tester/déployer. Une CI GitHub Actions
 - **Build** : script Python maison (`build.py`), pas de bundler externe
 - **PWA** : service worker (`sw.js`) avec cache versionné
 - **CI** : GitHub Actions, build + vérification syntaxique à chaque push
-- **Hosting** : Firebase Hosting sur `belenos-611bd` (gratuit, plan Spark),
-  via un site Hosting nommé "agnyra" (`.firebaserc` target + `firebase.json`
-  `hosting.target`) plutôt que le site par défaut du projet — permet une
-  URL `agnyra.web.app` sans dépendre du nom technique du projet Firebase.
-  Déploiement **automatique** via `.github/workflows/deploy.yml` à chaque
-  push (même mécanisme que le projet Planning PIN de l'utilisateur :
+- **Hosting** : ✅ **déployé et fonctionnel** sur `https://agnyra.web.app`
+  (site Hosting nommé "agnyra" dans le projet `belenos-611bd`, gratuit,
+  plan Spark). Déploiement **automatique** via `.github/workflows/
+  deploy.yml` à chaque push sur `main`/`claude/verify-build-index-qymiy0`
+  (même mécanisme que le projet Planning PIN de l'utilisateur :
   `FirebaseExtended/action-hosting-deploy@v0`, authentifié par le secret
-  GitHub `FIREBASE_SERVICE_ACCOUNT_AGNYRA`) — zéro CLI locale nécessaire une
-  fois le site créé et le secret ajouté (les deux se font entièrement dans
-  les consoles web Firebase/GitHub, voir README.md). Une CLI locale reste
-  possible en repli (`firebase deploy --only hosting`) mais n'est plus le
-  chemin recommandé. URL une fois déployé : `https://agnyra.web.app` (ou
-  une variante si ce nom est déjà pris — les noms de site Hosting sont
-  uniques dans le monde entier). Distinct du "cutover réel" (les vrais
-  équipiers restent sur `calendrier-pacy`) — donne juste une URL publique
-  à l'app qui utilise déjà `belenos-611bd`.
+  GitHub `FIREBASE_SERVICE_ACCOUNT_AGNYRA`) — zéro CLI locale nécessaire,
+  tout se fait dans les consoles web Firebase/GitHub (voir README.md pour
+  la procédure). Une CLI locale reste possible en repli (`firebase deploy
+  --only hosting`).
+  `agnyra.web.app` a dû être ajouté aux "Authorized domains" de Firebase
+  Authentication (console → Authentication → Settings) pour que la
+  connexion Google fonctionne — un nouveau domaine/site Hosting n'est pas
+  autorisé par défaut, seuls `localhost` et le domaine par défaut du
+  projet le sont. À refaire pour tout futur domaine personnalisé.
+  Distinct du "cutover réel" (les vrais équipiers restent sur
+  `calendrier-pacy`) — c'est juste une URL publique pour l'app qui utilise
+  déjà `belenos-611bd`.

@@ -20,7 +20,7 @@
     ],
     "headers": [
       {
-        "source": "/sw.js",
+        "source": "**/*.@(html|js|css|json)",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       }
     ],

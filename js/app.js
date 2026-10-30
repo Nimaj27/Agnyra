@@ -143,6 +143,18 @@ function heureLocale(iso) {
 function formatMontant(val) {
   return Number(val || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " €";
 }
+function formatMontantCourt(val) {
+  const n = Number(val || 0);
+  return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '').replace('.', ',') + 'k €' : Math.round(n) + ' €';
+}
+function initialesEquipe(nom) {
+  return (nom || '').split(/[\s&]+/).filter(Boolean).slice(0, 2).map(m => m[0]).join('').toUpperCase();
+}
+// Libellé du Nème passage à un foyer (1er passage, 2ème passage, ...)
+function libellePassage(n) {
+  n = n || 1;
+  return n === 1 ? "1er passage" : `${n}ème passage`;
+}
 
 // ── Badge état réseau (hors-ligne / synchro) ──────────────────
 function renderNetworkBadge() {
@@ -384,13 +396,18 @@ function renderLogin() {
             <button id="btn-changer-caserne" class="btn btn--ghost btn--full" style="margin-top:var(--sp-3);">← Changer de caserne</button>
           </div>
         </div>
+
+        <button id="btn-changelog-login" class="login-changelog-link">Nouveautés <span class="changelog-version-badge">v${h(CHANGELOG[0]?.version || '')}</span></button>
       </div>
+      <div id="modal-changelog" class="modal hidden"></div>
     </div>
   `;
   bindLoginEvents();
 }
 
 function bindLoginEvents() {
+  document.getElementById("btn-changelog-login")?.addEventListener("click", showChangelogModal);
+
   // Tabs
   $$(".tab-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -619,10 +636,14 @@ function afficherChoixMembre(equipe, membres) {
         </div>
         <p class="login-hint">Sélectionne ton nom pour que tes saisies soient identifiées.</p>
         <div class="membres-choix">
-          ${membres.map(m => `
-            <button class="membre-btn" data-membre="${h(m)}">${h(m)}</button>
+          ${membres.map((m, i) => `
+            <button class="membre-btn" data-membre="${h(m)}">
+              <span class="avatar-initiales" style="background:${PALETTE_EQUIPES[i % PALETTE_EQUIPES.length]}">${h(initialesEquipe(m))}</span>
+              <span>${h(m)}</span>
+            </button>
           `).join('')}
         </div>
+        <button id="btn-changer-caserne-membre" class="lien-discret">← Changer de caserne</button>
       </div>
     </div>
   `;
@@ -635,6 +656,7 @@ function afficherChoixMembre(equipe, membres) {
       naviguer("#terrain");
     });
   });
+  document.getElementById("btn-changer-caserne-membre")?.addEventListener("click", () => naviguer("#login"));
 }
 
 // ════════════════════════════════════════════════════════════
@@ -680,18 +702,72 @@ function parseCSV(text) {
   return lignes.map(parseCSVLine);
 }
 
+// ── Changelog produit ────────────────────────────────────────────
+// Maintenu à la main, entrée la plus récente en premier. Accessible depuis
+// le pied de la barre latérale admin (voir layoutAdmin/bindLogout).
+// "version" est un numéro produit indépendant du VERSION technique de
+// sw.js (celui-ci est régénéré automatiquement à chaque déploiement pour
+// invalider le cache PWA, même sans changement visible pour l'utilisateur).
+// Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
+// pour une refonte importante.
+const CHANGELOG = [
+  { version: "1.7", date: "2026-10-02", texte: "Le terrain affiche désormais le numéro de passage à un foyer (1er passage, 2ème passage…) : liste des passages, foyers à relancer et fenêtres de relance/correction." },
+  { version: "1.6", date: "2026-10-01", texte: "Nouvelle présentation pour Équipes, Historique, Classement, Statistiques et le choix du membre : cartes et graphiques plus lisibles, répartition par moyen de paiement ajoutée." },
+  { version: "1.5", date: "2026-10-01", texte: "Nouvelle présentation de l'espace admin : navigation par icônes regroupées, filtres par statut sur les secteurs, chiffres clés plus lisibles." },
+  { version: "1.4", date: "2026-10-01", texte: "Boutons de statut terrain (Don/Offert/Refus/Absent) agrandis, pour un repérage et une saisie plus faciles sur le terrain." },
+  { version: "1.3", date: "2026-09-14", texte: "Ajout des nouveautés dans le pied de la barre latérale." },
+  { version: "1.2", date: "2026-09-04", texte: "Déploiement automatique de l'application à chaque mise à jour (agnyra.web.app)." },
+  { version: "1.1", date: "2026-09-04", texte: "Le logo affiché après connexion correspond désormais à la caserne connectée." },
+  { version: "1.0", date: "2026-09-02", texte: "Nouveau nom et nouveau logo : Belenos devient Agnyra." }
+];
+
+function showChangelogModal() {
+  const modal = document.getElementById("modal-changelog");
+  if (!modal) return;
+  modal.innerHTML = `
+    <div class="modal-inner">
+      <h2>Nouveautés <span class="changelog-version-actuelle">v${h(CHANGELOG[0]?.version || '')}</span></h2>
+      <ul class="changelog-liste">
+        ${CHANGELOG.map(c => `
+          <li>
+            <span class="changelog-entete">
+              <span class="changelog-version">v${h(c.version)}</span>
+              <span class="changelog-date">${h(new Date(c.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }))}</span>
+            </span>
+            <span>${h(c.texte)}</span>
+          </li>
+        `).join('')}
+      </ul>
+      <div class="modal-actions">
+        <button class="btn btn--ghost" onclick="closeModal()">Fermer</button>
+      </div>
+    </div>
+  `;
+  modal.classList.remove("hidden");
+}
+
 function layoutAdmin(activeHash, content) {
   const nav = [
-    { hash: "#dashboard", icon: "📊", label: "Tableau de bord" },
-    { hash: "#secteurs",  icon: "🗺️", label: "Secteurs" },
-    { hash: "#equipes",   icon: "👥", label: "Équipes" },
-    { hash: "#passages",  icon: "📋", label: "Passages" },
-    { hash: "#relances",  icon: "🔔", label: "Relances" },
-    { hash: "#historique", icon: "📅", label: "Historique" },
-    { hash: "#classement", icon: "🏆", label: "Classement" },
-    { hash: "#statistiques", icon: "📈", label: "Statistiques" },
-    { hash: "#journal",    icon: "📜", label: "Journal" },
-    { hash: "#config",    icon: "⚙️",  label: "Config" }
+    { hash: "#dashboard", label: "Tableau de bord",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>' },
+    { section: "Terrain", hash: "#secteurs", label: "Secteurs",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>' },
+    { hash: "#equipes", label: "Équipes",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.6"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M14.5 14.3c2.6.3 4.5 2.4 4.5 5.1"/></svg>' },
+    { hash: "#passages", label: "Passages",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>' },
+    { hash: "#relances", label: "Relances",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>' },
+    { section: "Suivi", hash: "#historique", label: "Historique",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>' },
+    { hash: "#classement", label: "Classement",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8M12 17v4M7 4h10l-1 6a4 4 0 0 1-8 0z"/><path d="M5 5H3v2a4 4 0 0 0 4 4M19 5h2v2a4 4 0 0 1-4 4"/></svg>' },
+    { hash: "#statistiques", label: "Statistiques",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V10M12 19V5M20 19v-7"/></svg>' },
+    { section: "Système", hash: "#journal", label: "Journal",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 4h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V8"/></svg>' },
+    { hash: "#config",    label: "Config",
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>' }
   ];
   return `
     <div class="admin-layout">
@@ -707,6 +783,7 @@ function layoutAdmin(activeHash, content) {
         </div>
         <ul class="sidebar-nav">
           ${nav.map(n => `
+            ${n.section ? `<li class="sidebar-nav-section">${h(n.section)}</li>` : ''}
             <li>
               <a href="${n.hash}" class="sidebar-link ${activeHash === n.hash ? 'sidebar-link--active' : ''}">
                 <span class="sidebar-link-icon">${n.icon}</span>
@@ -718,12 +795,14 @@ function layoutAdmin(activeHash, content) {
         <div class="sidebar-footer">
           <span class="sidebar-user">${h(APP.user?.email || '')}</span>
           ${APP.estSuperAdmin ? `<button id="btn-changer-caserne-admin" class="btn btn--ghost btn--sm">Changer de caserne</button>` : ''}
+          <button id="btn-changelog" class="btn btn--ghost btn--sm">Nouveautés <span class="changelog-version-badge">v${h(CHANGELOG[0]?.version || '')}</span></button>
           <button id="btn-logout" class="btn btn--ghost btn--sm">Déconnexion</button>
         </div>
       </nav>
       <main class="admin-content">
         ${content}
       </main>
+      <div id="modal-changelog" class="modal hidden"></div>
     </div>
   `;
 }
@@ -733,6 +812,7 @@ function bindLogout() {
     sessionStorage.removeItem("adminOrganisationId");
     afficherChoixCaserneAdmin();
   });
+  document.getElementById("btn-changelog")?.addEventListener("click", showChangelogModal);
   document.getElementById("btn-logout")?.addEventListener("click", async () => {
     stopUnsubs();
     if (APP.role === "admin") await logoutGoogle();
@@ -991,6 +1071,7 @@ async function renderSecteurs() {
     </div>
     <div class="filter-bar">
       <input id="search-secteur" class="input input--sm" placeholder="🔍 Rechercher une commune ou un secteur…" style="max-width:320px;">
+      <div id="filtres-statut-secteur" class="filter-chips"></div>
     </div>
     <div id="secteurs-list"><div class="loader">Chargement…</div></div>
     <div id="modal-secteur" class="modal hidden"></div>
@@ -999,14 +1080,41 @@ async function renderSecteurs() {
   bindLogout();
 
   let _secteursCache = [];
+  let _filtreStatut = "tous";
 
-  document.getElementById("search-secteur")?.addEventListener("input", (e) => {
-    const q = e.target.value.trim().toLowerCase();
-    const filtered = q
-      ? _secteursCache.filter(s =>
-          s.commune.toLowerCase().includes(q) || s.nom.toLowerCase().includes(q))
-      : _secteursCache;
-    renderSecteursList(filtered);
+  function secteursFiltres() {
+    const q = document.getElementById("search-secteur")?.value.trim().toLowerCase() || '';
+    return _secteursCache.filter(s =>
+      (_filtreStatut === "tous" || s.statut === _filtreStatut) &&
+      (!q || s.commune.toLowerCase().includes(q) || s.nom.toLowerCase().includes(q))
+    );
+  }
+
+  function renderFiltresStatut() {
+    const chips = [
+      { cle: "tous", label: "Tous" },
+      { cle: "libre", label: STATUT_LABEL.libre },
+      { cle: "affecte", label: STATUT_LABEL.affecte },
+      { cle: "en_cours", label: STATUT_LABEL.en_cours },
+      { cle: "termine", label: STATUT_LABEL.termine }
+    ];
+    const zone = document.getElementById("filtres-statut-secteur");
+    if (!zone) return;
+    zone.innerHTML = chips.map(c => `
+      <button type="button" class="filter-chip ${_filtreStatut === c.cle ? 'filter-chip--active' : ''}" data-filtre="${c.cle}">${h(c.label)}</button>
+    `).join('');
+    zone.querySelectorAll(".filter-chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        _filtreStatut = btn.dataset.filtre;
+        renderFiltresStatut();
+        renderSecteursList(secteursFiltres());
+      });
+    });
+  }
+  renderFiltresStatut();
+
+  document.getElementById("search-secteur")?.addEventListener("input", () => {
+    renderSecteursList(secteursFiltres());
   });
 
   document.getElementById("btn-add-secteur")?.addEventListener("click", () => showSecteurModal());
@@ -1092,11 +1200,7 @@ async function renderSecteurs() {
 
   const unsub = ecouterSecteurs((secteurs) => {
     _secteursCache = secteurs;
-    const q = document.getElementById("search-secteur")?.value.trim().toLowerCase() || '';
-    const filtered = q
-      ? secteurs.filter(s => s.commune.toLowerCase().includes(q) || s.nom.toLowerCase().includes(q))
-      : secteurs;
-    renderSecteursList(filtered);
+    renderSecteursList(secteursFiltres());
   });
   APP.unsubs.push(unsub);
 }
@@ -1106,8 +1210,12 @@ function renderSecteursList(secteurs) {
   if (!list) return;
   if (secteurs.length === 0) {
     const hasSearch = document.getElementById("search-secteur")?.value.trim();
+    const filtreActif = document.querySelector(".filter-chip--active")?.dataset.filtre;
+    const hasFiltre = filtreActif && filtreActif !== "tous";
     list.innerHTML = hasSearch
       ? `<p class="empty-state">Aucun secteur ne correspond à « ${hasSearch} ».</p>`
+      : hasFiltre
+      ? `<p class="empty-state">Aucun secteur avec ce statut.</p>`
       : `<p class="empty-state">Aucun secteur. Commence par en créer un.</p>`;
     return;
   }
@@ -1579,9 +1687,17 @@ async function renderEquipes() {
 
   const unsub = ecouterEquipes(async (equipes) => {
     // Les PIN vivent dans une collection séparée : on les rattache pour l'affichage
-    let pins = {};
+    let pins = {}, secteurs = [], stats = null;
     try { pins = await lirePins(); } catch(e) {}
-    renderEquipesList(equipes.map(e => ({ ...e, pin: pins[e.id] || e.pin || null })));
+    try { [secteurs, stats] = await Promise.all([lireSecteurs(), statsGlobalesTournee()]); } catch(e) {}
+    const ids = equipes.map(e => e.id).sort();
+    renderEquipesList(equipes.map(e => ({
+      ...e,
+      pin: pins[e.id] || e.pin || null,
+      couleur: PALETTE_EQUIPES[ids.indexOf(e.id) % PALETTE_EQUIPES.length],
+      nbSecteurs: secteurs.filter(s => s.equipeId === e.id).length,
+      montant: stats?.parEquipe.find(x => x.id === e.id)?.montant || 0
+    })));
   });
   APP.unsubs.push(unsub);
 }
@@ -1594,30 +1710,38 @@ function renderEquipesList(equipes) {
     return;
   }
   list.innerHTML = `
-    <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Équipe</th><th>PIN</th><th>Membres</th><th>Remis</th><th>Actions</th></tr></thead>
-        <tbody>
-          ${equipes.map(e => {
-            const remis = totalRemis(e);
-            const nbR = (e.remises || []).length;
-            return `
-            <tr>
-              <td><strong>${h(e.nom)}</strong></td>
-              <td>${e.pin ? `<code class="pin-code">${e.pin}</code>`
-                : '<span style="color:var(--orange);font-size:.75rem">à migrer</span>'}</td>
-              <td>${h((e.membres || []).join(', ') || '—')}</td>
-              <td>${remis > 0
-                ? `<button class="btn-remis" onclick="voirRemises('${e.id}')">${formatMontant(remis)}<small>${nbR} remise${nbR>1?'s':''}</small></button>`
-                : '<span style="color:var(--ardoise-mid);font-size:.8rem">—</span>'}</td>
-              <td class="td-actions">
-                <button class="btn btn--sm btn--ghost" onclick="editEquipe('${e.id}')">✏️</button>
-                <button class="btn btn--sm btn--danger" onclick="deleteEquipe('${e.id}')">🗑️</button>
-              </td>
-            </tr>
-          `;}).join('')}
-        </tbody>
-      </table>
+    <div class="equipes-grid">
+      ${equipes.map(e => {
+        const remis = totalRemis(e);
+        const nbR = (e.remises || []).length;
+        return `
+        <div class="equipe-carte">
+          <div class="equipe-carte-head">
+            <div class="avatar-initiales" style="background:${e.couleur}">${h(initialesEquipe(e.nom))}</div>
+            <div class="equipe-carte-id">
+              <div class="equipe-carte-nom">${h(e.nom)}</div>
+              <div class="equipe-carte-membres">${h((e.membres || []).join(' · ') || 'Aucun membre')}</div>
+            </div>
+          </div>
+          <div class="equipe-carte-body">
+            <div class="equipe-carte-ligne">
+              <span>Code PIN</span>
+              ${e.pin ? `<code class="pin-code">${e.pin}</code>` : '<span style="color:var(--orange);font-size:.75rem">à migrer</span>'}
+            </div>
+            <div class="equipe-carte-ligne"><span>Secteurs affectés</span><strong>${e.nbSecteurs}</strong></div>
+            <div class="equipe-carte-ligne">
+              <span>Collecté</span>
+              ${remis > 0
+                ? `<button class="btn-remis" onclick="voirRemises('${e.id}')">${formatMontant(e.montant)}<small>${nbR} remise${nbR>1?'s':''} · ${formatMontant(remis)} remis</small></button>`
+                : `<strong class="equipe-carte-montant">${formatMontant(e.montant)}</strong>`}
+            </div>
+          </div>
+          <div class="equipe-carte-actions">
+            <button class="btn btn--sm btn--ghost" onclick="editEquipe('${e.id}')">✏️ Modifier</button>
+            <button class="btn btn--sm btn--danger" onclick="deleteEquipe('${e.id}')">🗑️ Supprimer</button>
+          </div>
+        </div>
+      `;}).join('')}
     </div>
   `;
 }
@@ -1939,12 +2063,14 @@ window.traiterRelance = async (passageId, secteurId) => {
   modal.innerHTML = `
     <div class="modal-inner">
       <h2>Résultat de la relance</h2>
-      <p class="login-hint">${h(p.adresse || '(adresse non précisée)')}${p.note ? ` — ${h(p.note)}` : ''}</p>
+      <p class="login-hint">${h(p.adresse || '(adresse non précisée)')}${p.note ? ` — ${h(p.note)}` : ''}
+        <span class="passage-badge-visite passage-badge-visite--revisite">${libellePassage((p.nbPassages||1) + 1)}</span>
+      </p>
 
       <div class="passage-statuts" style="margin:16px 0;">
-        <button class="statut-btn statut-btn--don" onclick="rlSelect('don')" data-rl="don">💰 Don</button>
-        <button class="statut-btn statut-btn--refuse" onclick="rlSelect('refuse')" data-rl="refuse">🚫 Refus</button>
-        <button class="statut-btn statut-btn--absent statut-btn--selected" onclick="rlSelect('absent')" data-rl="absent">🔔 Encore absent</button>
+        <button class="statut-btn statut-btn--don" onclick="rlSelect('don')" data-rl="don"><span class="statut-btn-icon">💰</span><span>Don</span></button>
+        <button class="statut-btn statut-btn--refuse" onclick="rlSelect('refuse')" data-rl="refuse"><span class="statut-btn-icon">🚫</span><span>Refus</span></button>
+        <button class="statut-btn statut-btn--absent statut-btn--selected" onclick="rlSelect('absent')" data-rl="absent"><span class="statut-btn-icon">🔔</span><span>Encore absent</span></button>
       </div>
 
       <div id="rl-don" class="don-details hidden">
@@ -1995,6 +2121,7 @@ window.traiterRelance = async (passageId, secteurId) => {
         modePaiement: st === "don" ? window._rlMode : null,
         note,
         aRelancer: st === "absent" && encore,
+        nbPassages: (p.nbPassages || 1) + 1,
         secteurId
       });
 
@@ -2077,7 +2204,24 @@ async function chargerHistorique() {
     return;
   }
 
+  const parAnnee = [...saisons].sort((a, b) => a.annee - b.annee);
+  const maxMontant = Math.max(...parAnnee.map(s => s.totalCollecte), 1);
+  const derniereAnnee = parAnnee[parAnnee.length - 1]?.annee;
+
   content.innerHTML = `
+    <div class="section-block">
+      <h2>Évolution de la collecte</h2>
+      <div class="historique-chart">
+        ${parAnnee.map(s => `
+          <div class="historique-chart-col">
+            <span class="historique-chart-val">${formatMontantCourt(s.totalCollecte)}</span>
+            <div class="historique-chart-bar" style="height:${Math.round((s.totalCollecte / maxMontant) * 100)}%;background:${s.annee === derniereAnnee ? 'var(--rouge)' : 'var(--ardoise-light)'}"></div>
+            <span class="historique-chart-annee">${s.annee}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
     <div class="section-block">
       <h2>Comparer deux saisons</h2>
       <div class="filter-bar">
@@ -2095,25 +2239,21 @@ async function chargerHistorique() {
 
     <div class="section-block">
       <h2>Saisons archivées</h2>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>Année</th><th>Total collecté</th><th>Dons</th><th>Secteurs</th><th>Source</th><th>Actions</th></tr></thead>
-          <tbody>
-            ${saisons.map(s => `
-              <tr>
-                <td><strong>${s.annee}</strong></td>
-                <td>${formatMontant(s.totalCollecte)}</td>
-                <td>${s.nbDons}</td>
-                <td>${s.nbSecteursTermines}/${s.nbSecteursTotal}</td>
-                <td>${s.saisieManuelle ? '✍️ Manuelle' : '📦 Archivée'}</td>
-                <td class="td-actions">
-                  <button class="btn btn--sm btn--ghost" onclick="voirDetailSaison(${s.annee})">👁️ Détail</button>
-                  <button class="btn btn--sm btn--danger" onclick="supprimerSaisonConfirm(${s.annee})">🗑️</button>
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+      <div class="saisons-grid">
+        ${saisons.map(s => `
+          <div class="saison-carte">
+            <div class="saison-carte-head">
+              <span class="saison-carte-annee">${s.annee}</span>
+              <span class="saison-carte-badge">${s.saisieManuelle ? '✍️ Manuelle' : '📦 Archivée'}</span>
+            </div>
+            <div class="saison-carte-montant">${formatMontant(s.totalCollecte)}</div>
+            <div class="saison-carte-sub">${s.nbDons} dons · ${s.nbSecteursTermines}/${s.nbSecteursTotal} secteurs</div>
+            <div class="saison-carte-actions">
+              <button class="btn btn--sm btn--ghost" onclick="voirDetailSaison(${s.annee})">Voir le détail →</button>
+              <button class="btn btn--sm btn--danger" onclick="supprimerSaisonConfirm(${s.annee})">🗑️</button>
+            </div>
+          </div>
+        `).join('')}
       </div>
     </div>
   `;
@@ -2440,6 +2580,21 @@ async function renderStatistiques() {
     const donMoyenGlobal = gDons > 0 ? gMontant / gDons : 0;
     const tauxRefusGlobal = gVisites > 0 ? (gRefus / gVisites) * 100 : 0;
 
+    // ── Moyens de paiement ──
+    let gEspeces = 0, gCheques = 0, gCarte = 0;
+    for (const p of passages) {
+      if (p.statut !== "don") continue;
+      if (p.modePaiement === "especes") gEspeces += Number(p.montant || 0);
+      else if (p.modePaiement === "cheque") gCheques += Number(p.montant || 0);
+      else if (p.modePaiement === "carte") gCarte += Number(p.montant || 0);
+    }
+    const totalPaiements = gEspeces + gCheques + gCarte;
+    const paiements = totalPaiements > 0 ? [
+      { label: "Espèces", montant: gEspeces, couleur: "var(--vert)" },
+      { label: "Chèque", montant: gCheques, couleur: "var(--bleu)" },
+      { label: "Carte bancaire", montant: gCarte, couleur: "var(--orange)" }
+    ].map(p => ({ ...p, pct: Math.round((p.montant / totalPaiements) * 100) })) : [];
+
     // ── Créneaux horaires ──
     const heures = Object.entries(parHeure)
       .map(([h, d]) => ({
@@ -2474,6 +2629,18 @@ async function renderStatistiques() {
           <div class="stat-label">Dons enregistrés</div>
         </div>
       </div>
+
+      ${paiements.length > 0 ? `
+      <div class="section-block">
+        <h2>Moyens de paiement</h2>
+        <div class="paiements-breakdown">
+          ${paiements.map(p => `
+            <div class="paiement-ligne">
+              <div class="paiement-ligne-top"><span>${p.label}</span><span style="color:var(--ardoise-mid)">${p.pct}% · ${formatMontant(p.montant)}</span></div>
+              <div class="paiement-bar-wrap"><div class="paiement-bar" style="width:${p.pct}%;background:${p.couleur}"></div></div>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
 
       <div class="section-block">
         <h2>Performance par secteur</h2>
@@ -3073,7 +3240,7 @@ async function chargerRelancesEquipe(secteurs) {
       const num = m ? m[1].trim() : (adr || '?');
       if (!parSecteur[sid].rues[rue]) parSecteur[sid].rues[rue] = [];
       const j = p.datePassage ? Math.floor((maintenant - new Date(p.datePassage).getTime())/86400000) : null;
-      parSecteur[sid].rues[rue].push({ num, id: p.id, sid, jours: j, note: p.note || '' });
+      parSecteur[sid].rues[rue].push({ num, id: p.id, sid, jours: j, note: p.note || '', nbPassages: p.nbPassages || 1 });
     }
 
     box.innerHTML = `
@@ -3090,8 +3257,8 @@ async function chargerRelancesEquipe(secteurs) {
                 <span class="terrain-relance-rue-nom">${h(rue)}</span>
                 <span class="terrain-relance-nums">
                   ${nums.map(n => `<button class="terrain-relance-num"
-                      title="${n.jours !== null ? `absent depuis ${n.jours} j` : ''}${n.note ? ' — '+h(n.note) : ''}"
-                      onclick="traiterRelance('${n.id}','${n.sid}')">${n.num}${n.jours !== null && n.jours >= 7 ? '!' : ''}</button>`).join('')}
+                      title="${libellePassage(n.nbPassages + 1)}${n.jours !== null ? ` — absent depuis ${n.jours} j` : ''}${n.note ? ' — '+h(n.note) : ''}"
+                      onclick="traiterRelance('${n.id}','${n.sid}')">${n.num}<sup class="terrain-relance-num-sup">${n.nbPassages + 1}</sup>${n.jours !== null && n.jours >= 7 ? '!' : ''}</button>`).join('')}
                 </span>
               </div>
             `).join('')}
@@ -3271,10 +3438,10 @@ async function renderTerrainPassages() {
         <input id="p-adresse" class="input" placeholder="Adresse / numéro (optionnel)" autocomplete="off">
         <div id="raccourcis-adresse" class="raccourcis-adresse hidden"></div>
         <div class="passage-statuts passage-statuts--4">
-          <button class="statut-btn statut-btn--don"   data-statut="don"    onclick="selectStatut('don')">💰 Don</button>
-          <button class="statut-btn statut-btn--offert" data-statut="offert" onclick="selectStatut('offert')">🎁 Offert</button>
-          <button class="statut-btn statut-btn--refuse" data-statut="refuse" onclick="selectStatut('refuse')">🚫 Refus</button>
-          <button class="statut-btn statut-btn--absent" data-statut="absent" onclick="selectStatut('absent')">🔔 Absent</button>
+        <button class="statut-btn statut-btn--don"   data-statut="don"    onclick="selectStatut('don')"><span class="statut-btn-icon">💰</span><span>Don</span></button>
+        <button class="statut-btn statut-btn--offert" data-statut="offert" onclick="selectStatut('offert')"><span class="statut-btn-icon">🎁</span><span>Offert</span></button>
+        <button class="statut-btn statut-btn--refuse" data-statut="refuse" onclick="selectStatut('refuse')"><span class="statut-btn-icon">🚫</span><span>Refus</span></button>
+        <button class="statut-btn statut-btn--absent" data-statut="absent" onclick="selectStatut('absent')"><span class="statut-btn-icon">🔔</span><span>Absent</span></button>
         </div>
 
         <div id="don-details" class="don-details hidden">
@@ -3591,8 +3758,9 @@ async function renderTerrainPassages() {
               .sort((a,b) => (a.adresse||'').localeCompare(b.adresse||'', 'fr', {numeric:true}))
               .map(p => {
                 const j = p.datePassage ? Math.floor((maintenant - new Date(p.datePassage).getTime())/86400000) : null;
-                return `<button class="terrain-relance-item" onclick="corrigerPassage('${p.id}','${secteurId}')">
+                return `<button class="terrain-relance-item" onclick="corrigerPassage('${p.id}','${secteurId}', true)">
                   <span class="terrain-relance-adr">${h(p.adresse || '(sans adresse)')}</span>
+                  <span class="terrain-relance-passage">→ ${libellePassage((p.nbPassages||1) + 1)}</span>
                   ${j !== null ? `<span class="terrain-relance-jours">${j} j</span>` : ''}
                 </button>`;
               }).join('')}
@@ -3612,6 +3780,7 @@ async function renderTerrainPassages() {
           <span class="passage-adresse">${h(p.adresse || '(adresse non précisée)')}</span>
           <span class="passage-badge">${STATUT_PASSAGE_LABEL[p.statut] || p.statut}</span>
           ${p.statut === 'don' ? `<span class="passage-montant">${formatMontant(p.montant)} ${p.modePaiement === 'cheque' ? '📝' : p.modePaiement === 'carte' ? '💳' : '💵'}</span>` : p.statut === 'offert' ? `<span class="passage-montant" style="color:var(--bleu)">🎁 offert</span>` : ''}
+          <span class="passage-badge-visite ${(p.nbPassages||1) > 1 ? 'passage-badge-visite--revisite' : ''}">${libellePassage(p.nbPassages)}</span>
         </div>
         <span class="passage-meta">
           ${p.saisiPar ? `<span class="passage-auteur" title="Saisi par ${p.saisiPar}">${p.saisiPar.slice(0,2).toUpperCase()}</span>` : ''}
@@ -3629,7 +3798,7 @@ async function renderTerrainPassages() {
 //  CORRECTION D'UN PASSAGE (côté équipier terrain)
 // ════════════════════════════════════════════════════════════
 
-window.corrigerPassage = async (passageId, secteurId) => {
+window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
   const passages = await passagesDuSecteur(secteurId);
   const p = passages.find(x => x.id === passageId);
   if (!p) { toast("Passage introuvable", "error"); return; }
@@ -3647,7 +3816,9 @@ window.corrigerPassage = async (passageId, secteurId) => {
   modal.innerHTML = `
     <div class="modal-inner">
       <h2>Corriger le passage</h2>
-      <p class="login-hint">Saisi à ${heure} — ${h(p.adresse || 'adresse non précisée')}</p>
+      <p class="login-hint">Saisi à ${heure} — ${h(p.adresse || 'adresse non précisée')}
+        <span class="passage-badge-visite ${estRelance ? 'passage-badge-visite--revisite' : ''}">${libellePassage(estRelance ? (p.nbPassages||1) + 1 : (p.nbPassages||1))}</span>
+      </p>
       ${(() => {
         const h = (APP._histAdresses || {})[normAdresse(p.adresse || '')];
         const r = resumeHistorique(h);
@@ -3660,10 +3831,10 @@ window.corrigerPassage = async (passageId, secteurId) => {
 
       <label class="label">Statut</label>
       <div class="passage-statuts" style="margin-bottom:8px;">
-        <button class="statut-btn statut-btn--don ${p.statut === 'don' ? 'statut-btn--selected' : ''}" data-cp-statut="don" onclick="cpSelectStatut('don')">💰 Don</button>
-        <button class="statut-btn statut-btn--offert ${p.statut === 'offert' ? 'statut-btn--selected' : ''}" data-cp-statut="offert" onclick="cpSelectStatut('offert')">🎁 Offert</button>
-        <button class="statut-btn statut-btn--refuse ${p.statut === 'refuse' ? 'statut-btn--selected' : ''}" data-cp-statut="refuse" onclick="cpSelectStatut('refuse')">🚫 Refus</button>
-        <button class="statut-btn statut-btn--absent ${(p.statut === 'absent' || p.statut === 'relance') ? 'statut-btn--selected' : ''}" data-cp-statut="absent" onclick="cpSelectStatut('absent')">🔔 Absent</button>
+        <button class="statut-btn statut-btn--don ${p.statut === 'don' ? 'statut-btn--selected' : ''}" data-cp-statut="don" onclick="cpSelectStatut('don')"><span class="statut-btn-icon">💰</span><span>Don</span></button>
+        <button class="statut-btn statut-btn--offert ${p.statut === 'offert' ? 'statut-btn--selected' : ''}" data-cp-statut="offert" onclick="cpSelectStatut('offert')"><span class="statut-btn-icon">🎁</span><span>Offert</span></button>
+        <button class="statut-btn statut-btn--refuse ${p.statut === 'refuse' ? 'statut-btn--selected' : ''}" data-cp-statut="refuse" onclick="cpSelectStatut('refuse')"><span class="statut-btn-icon">🚫</span><span>Refus</span></button>
+        <button class="statut-btn statut-btn--absent ${(p.statut === 'absent' || p.statut === 'relance') ? 'statut-btn--selected' : ''}" data-cp-statut="absent" onclick="cpSelectStatut('absent')"><span class="statut-btn-icon">🔔</span><span>Absent</span></button>
       </div>
 
       <div id="cp-don-details" class="don-details ${p.statut === 'don' ? '' : 'hidden'}">
@@ -3727,6 +3898,7 @@ window.corrigerPassage = async (passageId, secteurId) => {
         nomDonateur: statut === "don" ? donateur : "",
         note,
         aRelancer: statut === "absent" ? aRelancer : false,
+        ...(estRelance ? { nbPassages: (p.nbPassages || 1) + 1 } : {}),
         secteurId
       };
       await modifierPassage(passageId, apres);
@@ -4740,12 +4912,14 @@ async function renderClassement() {
     if (!content) return;
     const podium = getPodium(stats.parEquipe);
     const badgesParEquipe = calculerBadges(stats.parEquipe, secteurs, passages);
+    const ids = stats.parEquipe.map(e => e.id).sort();
+    const couleurEq = eq => PALETTE_EQUIPES[ids.indexOf(eq.id) % PALETTE_EQUIPES.length];
 
     content.innerHTML = `
       ${podium.length > 0 ? `<div class="podium-wrap">
-        ${podium[1] ? renderPodiumPlace(podium[1], 2, secteurs) : '<div></div>'}
-        ${podium[0] ? renderPodiumPlace(podium[0], 1, secteurs) : '<div></div>'}
-        ${podium[2] ? renderPodiumPlace(podium[2], 3, secteurs) : '<div></div>'}
+        ${podium[1] ? renderPodiumPlace(podium[1], 2, secteurs, couleurEq(podium[1])) : '<div></div>'}
+        ${podium[0] ? renderPodiumPlace(podium[0], 1, secteurs, couleurEq(podium[0])) : '<div></div>'}
+        ${podium[2] ? renderPodiumPlace(podium[2], 3, secteurs, couleurEq(podium[2])) : '<div></div>'}
       </div>` : '<p class="empty-state">Aucune équipe pour le moment.</p>'}
 
       <div class="section-block">
@@ -4758,6 +4932,7 @@ async function renderClassement() {
             return `<div class="ranking-card">
               <div class="ranking-card-top">
                 <span class="ranking-pos">#${i+1}</span>
+                <div class="avatar-initiales avatar-initiales--sm" style="background:${couleurEq(eq)}">${h(initialesEquipe(eq.nom))}</div>
                 <span class="ranking-nom">${h(eq.nom)}</span>
                 <span class="ranking-palier" title="${palier.label}">${palier.icone}</span>
               </div>
@@ -4790,12 +4965,13 @@ async function renderClassement() {
   APP.unsubs.push(unsub);
 }
 
-function renderPodiumPlace(eq, place, secteurs) {
+function renderPodiumPlace(eq, place, secteurs, couleur) {
   const hauteurs = { 1:"podium-place--1", 2:"podium-place--2", 3:"podium-place--3" };
   const medailles = { 1:"🥇", 2:"🥈", 3:"🥉" };
   const pct = pourcentCompletionEquipe(eq.id, secteurs);
   return `<div class="podium-place ${hauteurs[place]}">
     <div class="podium-medaille">${medailles[place]}</div>
+    <div class="avatar-initiales" style="background:${couleur};margin-bottom:var(--sp-2)">${h(initialesEquipe(eq.nom))}</div>
     <div class="podium-nom">${h(eq.nom)}</div>
     <div class="podium-montant">${formatMontant(eq.montant)}</div>
     <div class="podium-pct">${pct}%</div>
