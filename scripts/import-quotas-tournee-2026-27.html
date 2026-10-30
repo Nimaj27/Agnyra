@@ -51,6 +51,8 @@
     demande (retenue) · <span style="color:#B91C1C;font-weight:700">rouge</span> = ligne sans nom, secteur
     libéré (aucune équipe ajoutée depuis cette ligne) · <span style="color:#92400E;font-weight:700">jaune/orange</span>
     = en attente, <strong>exclu de l'import</strong> (Colley Matthieu ×2, Lelièvre Morgan — à trancher à la main).</p>
+  <p><strong>Reportés :</strong> les secteurs <em>Pacy 1 à 8</em> et <em>Ménilles</em> sont exclus de ce passage
+    (limites de rues pas encore confirmées) — ils seront traités dans un second temps, une fois la liste des rues reçue.</p>
 
   <h2>Étape 1 — Connexion admin</h2>
   <button id="btn-login">1. Se connecter sur calendrier-pacy</button>
@@ -171,6 +173,9 @@
       return groupes;
     }
 
+    // Secteurs dont les limites (liste des rues) ne sont pas encore confirmées : reportés
+    const EST_REPORTE = (cle) => /^(pacy \d|menilles)/.test(cle);
+
     let utilisateur = null;
     let planDAction = null; // calculé à l'étape 2, consommé à l'étape 3
 
@@ -212,6 +217,10 @@
         const actions = [];
 
         for (const [cle, g] of Object.entries(groupes)) {
+          if (EST_REPORTE(cle)) {
+            actions.push({ type: "reporte", libelle: g.libelle, quota: g.quota, membres: g.membres, attente: g.attente });
+            continue;
+          }
           const secteurDoc = secteurParCle[cle];
           if (!secteurDoc) {
             actions.push({ type: "absent", libelle: g.libelle, quota: g.quota, membres: g.membres, attente: g.attente });
@@ -254,7 +263,12 @@
           <th>Secteur (feuille)</th><th>Action prévue</th><th>Quota</th><th>Équipe</th>
         </tr></thead><tbody>`;
         for (const a of actions) {
-          if (a.type === "absent") {
+          if (a.type === "reporte") {
+            html += `<tr class="attente"><td>${a.libelle}</td>
+              <td><span class="tag tag--attente">reporté (limites de rues à confirmer)</span></td>
+              <td>${a.quota ?? "—"}</td>
+              <td>${a.membres.map(m => m.nomComplet).join(" &amp; ") || "—"}</td></tr>`;
+          } else if (a.type === "absent") {
             html += `<tr class="absent"><td>${a.libelle}</td>
               <td><span class="tag tag--absent">secteur introuvable en base</span></td>
               <td>${a.quota ?? "—"}</td>
@@ -285,6 +299,7 @@
         log(`── Aperçu ──`);
         log(`Secteurs en base : ${secteurs.length} · Équipes en base : ${equipes.length}`);
         log(`Groupes de la feuille : ${Object.keys(groupes).length}`);
+        log(`  reportés (Pacy / Ménilles) : ${actions.filter(a=>a.type==="reporte").length}`);
         log(`  secteur introuvable : ${actions.filter(a=>a.type==="absent").length}`);
         log(`  déjà en place (quota à vérifier) : ${actions.filter(a=>a.type==="inchange").length}`);
         log(`  nouvelle équipe à créer/affecter : ${actions.filter(a=>a.type==="nouvelle_equipe").length}`);
@@ -307,6 +322,7 @@
       for (const a of actions) {
         try {
           if (a.type === "absent") { nIgnorees++; continue; }
+          if (a.type === "reporte") continue;
 
           if (a.type === "libere") {
             if (a.quotaChange) {
@@ -352,7 +368,7 @@
       }
 
       log(`── Terminé : ${nEquipesCreees} équipe(s) créée(s), ${nQuotasMajs} quota(s) mis à jour, ${nIgnorees} secteur(s) introuvable(s) ignoré(s). ──`);
-      log(`Rappel : lignes en attente (Colley Matthieu ×2, Lelièvre Morgan) non traitées — à trancher puis relancer ce script, ou à saisir à la main dans l'app.`);
+      log(`Rappel : lignes en attente (Colley Matthieu ×2, Lelièvre Morgan) et secteurs Pacy / Ménilles non traités — à relancer une fois les listes de rues reçues.`);
     };
   </script>
 </body>
