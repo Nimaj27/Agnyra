@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Import one-off — quotas &amp; secteurs tournée 2026-27 (calendrier-pacy)</title>
+  <title>Import one-off — quotas &amp; secteurs tournée 2026-27 (Agnyra)</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; color: #1C1F2E; }
     button { display: block; margin: 0.5rem 0; padding: 0.6rem 1rem; font-size: .95rem; cursor: pointer; }
@@ -27,8 +27,9 @@
 <body>
   <h1>Import one-off — Tournée Calendrier 2026-27</h1>
   <div class="warn">
-    <strong>Cible : calendrier-pacy (production réelle).</strong>
-    Ce script lit d'abord l'état actuel (secteurs, équipes, pins) sans rien écrire
+    <strong>Cible : Agnyra (belenos-611bd), caserne « pacy ».</strong>
+    Les vrais équipiers utilisent encore calendrier-pacy : ce script ne la touche pas.
+    Il lit d'abord l'état actuel (secteurs, équipes, pins) sans rien écrire
     (étape 2), affiche un tableau détaillé de ce qu'il ferait, puis n'écrit
     qu'à l'étape 3 — rien n'est appliqué sans que tu aies vu l'aperçu complet.
   </div>
@@ -37,7 +38,7 @@
     <ul>
       <li>Il ne crée jamais de nouveau <em>secteur</em> — un secteur de la feuille
         introuvable dans la base est juste signalé, à toi de le créer/renommer à la main.</li>
-      <li>Il ne touche pas au <code>statut</code> des secteurs ni aux passages —
+      <li>Il ne touche aux <code>statut</code> des secteurs que pour passer « libre » à « affecté » quand une équipe leur est donnée (comme le fait l'appli) ; jamais aux passages —
         la remise à zéro de la saison se fait séparément, via
         « Archiver la saison en cours » dans Historique, quand tu es prêt(e).</li>
       <li>Il ne désaffecte jamais une équipe automatiquement, même sur un secteur
@@ -57,7 +58,7 @@
     (limites de rues pas encore confirmées) — ils seront traités dans un second temps, une fois la liste des rues reçue.</p>
 
   <h2>Étape 1 — Connexion admin</h2>
-  <button id="btn-login">1. Se connecter sur calendrier-pacy</button>
+  <button id="btn-login">1. Se connecter sur Agnyra (compte admin)</button>
   <div id="qui-suis-je"></div>
 
   <h2>Étape 2 — Aperçu (lecture seule)</h2>
@@ -72,20 +73,21 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
     import {
-      getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc
+      getFirestore, collection, doc, getDocs, setDoc, updateDoc, query, where
     } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
     import {
       getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged
     } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
 
     const CONFIG = {
-      apiKey:            "AIzaSyCj7etN5gV8CckkOBiFaKn38D_onZCIE2A",
-      authDomain:        "calendrier-pacy.firebaseapp.com",
-      projectId:         "calendrier-pacy",
-      storageBucket:     "calendrier-pacy.firebasestorage.app",
-      messagingSenderId: "767402684897",
-      appId:             "1:767402684897:web:134c456b1de29b2dace2a0"
+      apiKey:            "AIzaSyAdKgOOKSklOYiud8mC4VSBUUhT1HWNlJ0",
+      authDomain:        "belenos-611bd.firebaseapp.com",
+      projectId:         "belenos-611bd",
+      storageBucket:     "belenos-611bd.firebasestorage.app",
+      messagingSenderId: "503376077615",
+      appId:             "1:503376077615:web:638bac385c2cc3bfa477da"
     };
+    const ORGANISATION_ID = "pacy";
 
     const app  = initializeApp(CONFIG);
     const db   = getFirestore(app);
@@ -194,7 +196,7 @@
     });
 
     async function lireCollection(nom) {
-      const snap = await getDocs(collection(db, nom));
+      const snap = await getDocs(query(collection(db, nom), where("organisationId", "==", ORGANISATION_ID)));
       return snap.docs.map(d => ({ id: d.id, data: d.data() }));
     }
 
@@ -216,7 +218,7 @@
         const secteurParCle = {};
         for (const s of secteurs) secteurParCle[normalise(s.data.nom || "")] = s;
         const equipeParId = Object.fromEntries(equipes.map(e => [e.id, e]));
-        const pinsExistants = new Set(pins.map(p => p.id));
+        const pinsExistants = new Set(pins.map(p => String(p.data.pin || p.id.replace(`${ORGANISATION_ID}_`, ""))));
         const equipeParNom = Object.fromEntries(equipes.map(e => [normalise(e.data.nom || ""), e]));
 
         const groupes = regrouperParSecteur(LIGNES);
@@ -257,6 +259,7 @@
             actions.push({
               type: "nouvelle_equipe", libelle: g.libelle, secteurId: secteurDoc.id, quota: g.quota,
               nomEquipe, equipeExistanteId: equipeParNom[normalise(nomEquipe)]?.id || null,
+              statutActuel: secteurDoc.data.statut || "libre",
               equipeActuelle: equipeActuelle?.data.nom || null,
               nouveauxMembres: g.membres, placesLibres: g.placesLibres
             });
@@ -321,7 +324,7 @@
 
     document.getElementById("btn-appliquer").onclick = async () => {
       if (!planDAction) return;
-      if (!confirm("Appliquer les quotas et créer/affecter les nouvelles équipes sur calendrier-pacy ?\n\nLes lignes « secteur introuvable » et les secteurs Pacy / Ménilles resteront à traiter à la main.")) return;
+      if (!confirm("Appliquer les quotas et créer/affecter les nouvelles équipes sur Agnyra (caserne pacy) ?\n\nLes lignes « secteur introuvable » et les secteurs Pacy / Ménilles resteront à traiter à la main.")) return;
 
       const { actions, pinsExistants } = planDAction;
       let nEquipesCreees = 0, nQuotasMajs = 0, nIgnorees = 0;
@@ -360,9 +363,9 @@
             let infoPin = "équipe existante, PIN inchangé";
             if (!equipeId) {
               const equipeRef = doc(collection(db, "equipes"));
-              await setDoc(equipeRef, { nom: nomEquipe, membres });
+              await setDoc(equipeRef, { organisationId: ORGANISATION_ID, nom: nomEquipe, membres, actif: true });
               const pin = genererPin(pinsExistants);
-              await setDoc(doc(db, "pins", pin), { equipeId: equipeRef.id, nom: nomEquipe });
+              await setDoc(doc(db, "pins", `${ORGANISATION_ID}_${pin}`), { equipeId: equipeRef.id, nom: nomEquipe, organisationId: ORGANISATION_ID, pin });
               equipeId = equipeRef.id;
               equipesCreeesDansCeRun[cle] = equipeId;
               nEquipesCreees++;
@@ -372,6 +375,7 @@
             await updateDoc(doc(db, "secteurs", a.secteurId), {
               equipeId,
               equipNom: nomEquipe,
+              ...(a.statutActuel === "libre" ? { statut: "affecte" } : {}),
               ...(a.quota !== null ? { objectifCalendriers: Number(a.quota) } : {})
             });
             log(`✅ ${a.libelle} : équipe « ${nomEquipe} » (${infoPin}) affectée${a.quota !== null ? `, quota ${a.quota}` : ''}`);
