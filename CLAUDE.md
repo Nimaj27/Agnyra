@@ -289,6 +289,28 @@ le document, incrémenté **uniquement lors d'une vraie revisite** :
   du tableau de bord (en exposant, discret), et en-tête des deux modales de
   relance/correction. Rien côté admin pour l'instant (pas demandé).
 
+## Carte des secteurs : zones sans chevauchement (11/11)
+
+Sur la carte du tableau de bord, un secteur sans polygone précalculé
+(`POLYGONES_SECTEURS`, ancien découpage de Pacy/Ménilles) voyait sa zone
+tirée d'un seul point géocodé par rue : les zones se recouvraient, et un
+secteur sans rue reconnue (ex. liste « À définir ») était peint sur toute la
+commune. Désormais (`afficherSecteursSurCarte`, `js/carte.js`) :
+- `pointsSecteur(secteur)` (`js/geoloc.js`) renvoie les coordonnées de toutes
+  les adresses des rues du secteur (numéros autorisés compris), à partir de la
+  base d'adresses embarquée — aucun appel réseau.
+- `zoneDepuisAdresses` en tire une enveloppe concave (tampon de 30 m).
+- Dans une commune découpée, les petits secteurs sont tracés d'abord et les
+  plus grands se creusent autour d'eux (`turf.difference`) : aucun
+  recouvrement (vérifié : 0 m² sur Pacy, Ménilles, Saint-Vincent).
+- Un secteur d'une commune découpée dont aucune rue n'est reconnue n'est plus
+  tracé (avant : contour de toute la commune).
+- `build.py` nettoie maintenant les `import` de `carte.js` comme ceux des
+  autres modules (nécessaire depuis que `carte.js` importe `geoloc.js`).
+- Penser à donner une `couleur` distincte aux secteurs importés par CSV : le
+  repli est le rouge `#EF4444`, la carte utilise la couleur du secteur avant
+  celle de l'équipe.
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)

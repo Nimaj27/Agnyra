@@ -1,3 +1,4 @@
+import { pointsSecteur } from "./geoloc.js";
 // ── Polygones précalculés des secteurs découpés ──
 // Générés par partition de Voronoï sur les 11 zones, à partir des
 // coordonnées GPS réelles de chaque foyer (Base Adresse Nationale).
@@ -138,6 +139,25 @@ async function calculerZoneApproximative(rues, commune) {
   }
 }
 
+// ── Zone d'un secteur construite à partir des adresses réelles de ses rues ──
+// (base d'adresses embarquée : aucun appel réseau, et les zones épousent les
+// rues du secteur au lieu d'une enveloppe tirée entre quelques points)
+async function zoneDepuisAdresses(secteur) {
+  const pts = pointsSecteur(secteur);
+  if (pts.length < 3) return null;
+  try { await chargerTurf(); } catch(e) { return null; }
+  try {
+    const fc = turf.featureCollection(pts.map(p => turf.point(p)));
+    let hull = null;
+    for (const maxEdge of [0.25, 0.4, 0.7, 1.2]) {
+      try { hull = turf.concave(fc, { maxEdge, units: "kilometers" }); if (hull) break; } catch(e) {}
+    }
+    if (!hull) { try { hull = turf.convex(fc); } catch(e) {} }
+    if (!hull) return null;
+    return turf.buffer(hull, 0.03, { units: "kilometers" }) || hull;
+  } catch(e) { return null; }
+}
+
 async function fetchContourCommune(codeInsee) {
   if (_contourCache[codeInsee]) return _contourCache[codeInsee];
   try {
@@ -172,6 +192,28 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
   const nbParCommune = {};
   secteurs.forEach(s => { nbParCommune[s.commune] = (nbParCommune[s.commune]||0) + 1; });
 
+  // Zones issues des adresses réelles, pour les secteurs sans polygone précalculé.
+  // Dans une commune découpée, les petits secteurs sont tracés d'abord et les plus
+  // grands se creusent autour d'eux : aucune zone ne recouvre une autre.
+  const zonesAdresses = new Map();
+  const parCommuneZ = {};
+  secteurs.forEach(s => {
+    if (!POLYGONES_SECTEURS[s.nom] && nbParCommune[s.commune] > 1 && s.rues && s.rues.length > 0) {
+      (parCommuneZ[s.commune] = parCommuneZ[s.commune] || []).push(s);
+    }
+  });
+  for (const liste of Object.values(parCommuneZ)) {
+    const tries = liste.map(s => ({ s, n: pointsSecteur(s).length })).filter(x => x.n >= 3).sort((a, b) => a.n - b.n);
+    const faits = [];
+    for (const { s } of tries) {
+      let zone = await zoneDepuisAdresses(s);
+      if (!zone) continue;
+      for (const prev of faits) { try { zone = turf.difference(zone, prev) || zone; } catch(e) {} }
+      faits.push(zone);
+      zonesAdresses.set(s.id, { type: "Feature", geometry: zone.geometry, properties: {} });
+    }
+  }
+
   for (const secteur of secteurs) {
     const codeInsee=COMMUNES_INSEE[secteur.commune]; if(!codeInsee) continue;
 
@@ -182,11 +224,19 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     if (POLYGONES_SECTEURS[secteur.nom]) {
       geojson = { type: "Feature", geometry: POLYGONES_SECTEURS[secteur.nom], properties: {} };
     }
-    // 2. Sinon, géocodage à la volée pour les découpages non précalculés
+    // 2. Sinon, zone construite à partir des adresses réelles des rues du secteur
+    else if (zonesAdresses.has(secteur.id)) {
+      geojson = zonesAdresses.get(secteur.id);
+    }
+    // 3. Sinon, géocodage à la volée pour les découpages non précalculés
     else if (communeDecoupee && secteur.rues && secteur.rues.length > 0) {
       geojson = await calculerZoneApproximative(secteur.rues, secteur.commune);
     }
-    // 3. Sinon, contour communal officiel
+    // 4. Dans une commune découpée, un secteur dont on ne sait pas situer les rues
+    //    (ex. liste « À définir ») n'est pas tracé : lui peindre toute la commune
+    //    recouvrirait ses voisins.
+    if (!geojson && communeDecoupee && secteur.rues && secteur.rues.length > 0) continue;
+    // 5. Sinon, contour communal officiel
     if (!geojson) geojson = await fetchContourCommune(codeInsee);
     if (!geojson) continue;
     // Priorité à la couleur choisie pour le secteur (Modifier) — repli sur la couleur d'équipe si non définie

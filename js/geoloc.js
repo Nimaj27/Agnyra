@@ -211,6 +211,32 @@ export function nbFoyersSecteur(secteur) {
   return n;
 }
 
+// Points GPS [lon, lat] de toutes les adresses d'un secteur (rues et numéros autorisés)
+export function pointsSecteur(secteur) {
+  if (!secteur || !secteur.commune || !secteur.rues || secteur.rues.length === 0) return [];
+  const data = GEO_ADRESSES[secteur.commune];
+  if (!data) return [];
+
+  const filtre = {};
+  for (const entry of secteur.rues) {
+    const { rue, numeros } = parseRueEntry(entry);
+    const cible = normRueG(rue);
+    data.r.forEach((r, i) => {
+      if (normRueG(r) !== cible) return;
+      if (numeros === null) { filtre[i] = null; }
+      else if (filtre[i] !== null) { filtre[i] = [...(filtre[i] || []), ...numeros.map(normRueG)]; }
+    });
+  }
+
+  const points = [];
+  for (const p of data.p) {
+    if (!(p[1] in filtre)) continue;
+    const autorises = filtre[p[1]];
+    if (autorises === null || autorises.includes(normRueG(p[0]))) points.push([p[3], p[2]]);
+  }
+  return points;
+}
+
 // Liste les rues d'un secteur avec leur nombre de foyers, triées alphabétiquement
 export function ruesDuSecteur(secteur) {
   if (!secteur || !secteur.commune) return [];
