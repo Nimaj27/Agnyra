@@ -2427,6 +2427,7 @@ async function initCarte(containerId, options={}) {
 }
 async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
   const layers=[], bounds=[];
+  const rendu = L.canvas({ padding: 0.5 }); // des centaines d'adresses : rendu canvas
 
   // Repérer les communes découpées en plusieurs secteurs : elles seules ont
   // besoin d'un géocodage par rues (sinon les contours se superposeraient).
@@ -2474,9 +2475,9 @@ async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
       geojson = await calculerZoneApproximative(secteur.rues, secteur.commune);
     }
     // 4. Dans une commune découpée, un secteur dont on ne sait pas situer les rues
-    //    (ex. liste « À définir ») n'est pas tracé : lui peindre toute la commune
-    //    recouvrirait ses voisins.
-    if (!geojson && communeDecoupee && secteur.rues && secteur.rues.length > 0) continue;
+    //    (liste « À définir », rues vides ou introuvables) n'est pas tracé : lui
+    //    peindre toute la commune recouvrirait ses voisins.
+    if (!geojson && communeDecoupee) continue;
     // 5. Sinon, contour communal officiel
     if (!geojson) geojson = await fetchContourCommune(codeInsee);
     if (!geojson) continue;
@@ -2484,7 +2485,13 @@ async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     const couleur = secteur.couleur || getCouleurEquipe(secteur.equipeId,equipes);
     // Communes découpées : bordure colorée + remplissage plus léger pour
     // que les éventuels chevauchements restent lisibles
-    const style = communeDecoupee
+    // Secteur dont on connaît les adresses : ce sont elles, colorées par secteur, qui
+    // le distinguent de ses voisins ; la zone n'est plus qu'un fond léger.
+    const pointsAdresses = (communeDecoupee && !POLYGONES_SECTEURS[secteur.nom]) ? pointsSecteur(secteur) : [];
+    const style = pointsAdresses.length
+      ? { color: couleur, weight: 1.5, opacity: 0.7, fillColor: couleur,
+          fillOpacity: secteur.statut==="termine"?0.22:secteur.statut==="en_cours"?0.18:0.1 }
+      : communeDecoupee
       ? { color: couleur, weight: 2.5, opacity: 1,
           fillColor: couleur,
           fillOpacity: secteur.statut==="termine"?0.45:secteur.statut==="en_cours"?0.35:secteur.equipeId?0.25:0.12 }
@@ -2492,8 +2499,14 @@ async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
           fillColor: couleur,
           fillOpacity: secteur.statut==="termine"?0.65:secteur.statut==="en_cours"?0.5:secteur.equipeId?0.4:0.15 };
     const layer=L.geoJSON(geojson,{ style });
-    layer.bindPopup(`<div style="font-family:Inter,sans-serif;min-width:160px;"><strong>${secteur.nom}</strong><br><span style="color:#666">${secteur.commune}</span><br>👥 ${secteur.equipNom||'Non affecté'}<br><strong style="color:#16A34A">${Number(secteur.totalCollecte||0).toLocaleString('fr-FR')} €</strong></div>`);
+    const popupHtml = `<div style="font-family:Inter,sans-serif;min-width:160px;"><strong>${secteur.nom}</strong><br><span style="color:#666">${secteur.commune}</span><br>👥 ${secteur.equipNom||'Non affecté'}<br><strong style="color:#16A34A">${Number(secteur.totalCollecte||0).toLocaleString('fr-FR')} €</strong></div>`;
+    layer.bindPopup(popupHtml);
     layer.addTo(map); layers.push(layer);
+    if (pointsAdresses.length) {
+      const points = L.layerGroup(pointsAdresses.map(([lon, lat]) =>
+        L.circleMarker([lat, lon], { renderer: rendu, radius: 3.5, color: "#FFFFFF", weight: 1, fillColor: couleur, fillOpacity: 0.95 }).bindPopup(popupHtml)));
+      points.addTo(map); layers.push(points);
+    }
     const b=layer.getBounds(); if(b.isValid()) bounds.push(b);
   }
   if (bounds.length>0) { let ab=bounds[0]; bounds.forEach(b=>{ab=ab.extend(b);}); map.fitBounds(ab,{padding:[20,20]}); }
@@ -4725,8 +4738,13 @@ async function renderDashboard() {
     // Légende dynamique : une couleur par équipe
     const legend = document.getElementById("map-legend");
     if (legend) {
-      legend.innerHTML = `<span><i style="background:#9CA3AF"></i> Non affecté</span>` +
-        equipes.map((eq, i) => `<span><i style="background:${PALETTE_EQUIPES[equipes.map(e=>e.id).sort().indexOf(eq.id) % PALETTE_EQUIPES.length]}"></i> ${h(eq.nom)}</span>`).join('');
+      // Même règle que la carte : couleur choisie pour le secteur, sinon couleur de son équipe
+      const idsEquipes = equipes.map(e => e.id).sort();
+      const couleurSecteur = s => s.couleur
+        || (s.equipeId ? PALETTE_EQUIPES[idsEquipes.indexOf(s.equipeId) % PALETTE_EQUIPES.length] : "#9CA3AF");
+      legend.innerHTML = [...secteurs]
+        .sort((x, y) => x.nom.localeCompare(y.nom, "fr", { numeric: true }))
+        .map(s => `<span><i style="background:${couleurSecteur(s)}"></i> ${h(s.nom)}</span>`).join('');
     }
   }
 

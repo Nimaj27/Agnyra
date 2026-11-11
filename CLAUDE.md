@@ -305,6 +305,15 @@ commune. Désormais (`afficherSecteursSurCarte`, `js/carte.js`) :
   recouvrement (vérifié : 0 m² sur Pacy, Ménilles, Saint-Vincent).
 - Un secteur d'une commune découpée dont aucune rue n'est reconnue n'est plus
   tracé (avant : contour de toute la commune).
+- Chaque adresse d'un secteur (commune découpée, sans polygone précalculé) est
+  aussi dessinée en point de la couleur du secteur (rendu canvas) : c'est ce
+  qui distingue les secteurs entre eux, même quand leurs rues s'entremêlent.
+  La zone n'est plus qu'un fond léger.
+- Un secteur d'une commune découpée sans zone ni adresse connue (rues vides,
+  « À définir », rues introuvables) n'est pas tracé du tout.
+- La légende de la carte (`refreshCarte`, `js/app.js`) liste les secteurs avec
+  la couleur réellement utilisée (couleur du secteur, sinon celle de son
+  équipe), et non plus une couleur par équipe.
 - `build.py` nettoie maintenant les `import` de `carte.js` comme ceux des
   autres modules (nécessaire depuis que `carte.js` importe `geoloc.js`).
 - Penser à donner une `couleur` distincte aux secteurs importés par CSV : le
