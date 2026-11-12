@@ -408,6 +408,9 @@ body {
 .secteur-equipe { font-size: .88rem; color: var(--ardoise-mid); margin-bottom: var(--sp-2); }
 .secteur-commune-label { font-size: .72rem; font-weight: 600; color: var(--ardoise-mid); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--sp-2); }
 .secteur-montant { font-size: 1.1rem; font-weight: 700; color: var(--vert); }
+.secteur-boites { font-size: .82rem; font-weight: 700; color: var(--ardoise); margin-top: 2px; }
+.secteur-boites-warn { font-weight: 500; font-size: .74rem; color: var(--orange); margin-left: 4px; }
+.secteurs-total { font-size: .9rem; color: var(--ardoise-mid); margin: 0 0 var(--sp-3); }
 .secteur-objectif { font-size: .78rem; font-weight: 600; color: var(--orange); margin-top: 2px; }
 .secteur-rues { font-size: .78rem; color: var(--ardoise-mid); margin-top: var(--sp-2); line-height: 1.4; }
 .secteur-card-actions { display: flex; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); flex-wrap: wrap; background: var(--gris-fond); }
