@@ -127,6 +127,23 @@ function ja(value) {
   return h(JSON.stringify(String(value ?? "")));
 }
 
+// Nombre réel de boîtes aux lettres d'un secteur : adresses de la base pour ses
+// rues, plus les numéros ajoutés à la main, moins les adresses fusionnées
+// (comptées une seule fois) et les adresses marquées inhabitées.
+function nbBoitesReelles(secteur) {
+  if (!secteur) return 0;
+  let n = nbFoyersSecteur(secteur);
+  n += Object.values(secteur.ruesComplements || {}).reduce((t, arr) => t + (arr || []).length, 0);
+  n -= adressesSecondaires(secteur).length;
+  n -= (secteur.inhabitees || []).length;
+  return Math.max(0, n);
+}
+// Rues du secteur absentes de la base d'adresses : saisies, mais non comptées.
+function nbRuesHorsBase(secteur) {
+  const saisies = (secteur?.rues || []).length;
+  return Math.max(0, saisies - ruesDuSecteur(secteur).length);
+}
+
 function formatMontant(val) {
   return Number(val || 0).toLocaleString("fr-FR", { minimumFractionDigits: 2 }) + " €";
 }
@@ -698,6 +715,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.8", date: "2026-11-12", texte: "Chaque secteur affiche son nombre réel de boîtes aux lettres (adresses de la base + numéros ajoutés − adresses fusionnées − inhabitées), avec le total sur la liste des secteurs et un avertissement pour les rues non comptées. Le même calcul sert maintenant aux statistiques, au bilan et au terrain." },
   { version: "1.7", date: "2026-10-02", texte: "Le terrain affiche désormais le numéro de passage à un foyer (1er passage, 2ème passage…) : liste des passages, foyers à relancer et fenêtres de relance/correction." },
   { version: "1.6", date: "2026-10-01", texte: "Nouvelle présentation pour Équipes, Historique, Classement, Statistiques et le choix du membre : cartes et graphiques plus lisibles, répartition par moyen de paiement ajoutée." },
   { version: "1.5", date: "2026-10-01", texte: "Nouvelle présentation de l'espace admin : navigation par icônes regroupées, filtres par statut sur les secteurs, chiffres clés plus lisibles." },
@@ -1230,7 +1248,9 @@ function renderSecteursList(secteurs) {
     return;
   }
   const sorted = [...secteurs].sort((a, b) => (a.commune + a.nom).localeCompare(b.commune + b.nom));
+  const totalBoitesListe = sorted.reduce((t, s) => t + nbBoitesReelles(s), 0);
   list.innerHTML = `
+    <p class="secteurs-total">📬 <strong>${totalBoitesListe.toLocaleString('fr-FR')}</strong> boîtes aux lettres sur ${sorted.length} secteur${sorted.length > 1 ? 's' : ''}</p>
     <div class="secteurs-grid">
       ${sorted.map(s => `
         <div class="secteur-card secteur-card--${s.statut}" data-id="${s.id}">
@@ -1243,6 +1263,10 @@ function renderSecteursList(secteurs) {
             <div class="secteur-commune-label">${h(s.commune)}</div>
             <div class="secteur-equipe">${s.equipNom ? '👥 ' + h(s.equipNom) : '— Non affecté'}</div>
             <div class="secteur-montant">${formatMontant(s.totalCollecte)}</div>
+            ${(() => {
+              const nb = nbBoitesReelles(s), hors = nbRuesHorsBase(s);
+              return `<div class="secteur-boites" title="Adresses de la base d'adresses + numéros ajoutés − adresses fusionnées − inhabitées">📬 ${nb} boîte${nb > 1 ? 's' : ''} aux lettres${hors ? ` <span class="secteur-boites-warn" title="Rues saisies mais absentes de la base d'adresses : leurs boîtes ne sont pas comptées">⚠️ ${hors} rue${hors > 1 ? 's' : ''} non comptée${hors > 1 ? 's' : ''}</span>` : ''}</div>`;
+            })()}
             ${s.objectifCalendriers > 0 ? `<div class="secteur-objectif">🎯 Objectif : ${s.objectifCalendriers} calendriers</div>` : ''}
             ${s.rues?.length ? `<div class="secteur-rues">${h(s.rues.join(', '))}</div>` : ''}
           </div>
@@ -2535,7 +2559,7 @@ async function renderStatistiques() {
     for (const s of secteurs) {
       parSecteur[s.id] = {
         nom: s.nom, commune: s.commune,
-        boites: nbFoyersSecteur(s),
+        boites: nbBoitesReelles(s),
         dons: 0, offerts: 0, refus: 0, absents: 0, montant: 0
       };
     }
@@ -3388,7 +3412,7 @@ function renderTerrainSecteurs(secteurs) {
             <span>🔔 ${s.nbFoyersAbsents || 0} absents</span>
           </div>
           ${(() => {
-            const tot = nbFoyersSecteur(s);
+            const tot = nbBoitesReelles(s);
             if (!tot) return '';
             const rest = Math.max(0, tot - (s.nbFoyersVisites || 0));
             const p = Math.round(((s.nbFoyersVisites||0) / tot) * 100);
@@ -4024,12 +4048,7 @@ function majStatsTerrain(secteur, passages) {
   if (!box) return;
 
   // Total de boîtes = BAN + compléments manuels − adresses fusionnées − inhabitées
-  let totalBoites = nbFoyersSecteur(secteur);
-  const comp = secteur.ruesComplements || {};
-  totalBoites += Object.values(comp).reduce((s, arr) => s + (arr || []).length, 0);
-  totalBoites -= adressesSecondaires(secteur).length;
-  totalBoites -= (secteur.inhabitees || []).length;
-  totalBoites = Math.max(0, totalBoites);
+  const totalBoites = nbBoitesReelles(secteur);
   const aujourdhui = dateLocaleISO();
 
   // Traités = dons + refus (les absents restent « à faire »)
@@ -4181,7 +4200,7 @@ window.afficherMonBilan = async () => {
     // ── Avancement sur les secteurs ──
     let totalBoites = 0, traites = 0;
     for (const s of secteurs) {
-      totalBoites += nbFoyersSecteur(s);
+      totalBoites += nbBoitesReelles(s);
       traites += (s.nbFoyersVisites || 0);
     }
     const pctGlobal = totalBoites > 0 ? Math.round((traites/totalBoites)*100) : 0;
