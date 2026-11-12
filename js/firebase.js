@@ -151,8 +151,10 @@ async function estSuperAdminEmail(email) {
 // Connexion par code PIN, scopée à une caserne (chantier multi-tenant,
 // point 3 — code caserne saisi explicitement). La clé du document dans
 // /pins combine caserne + PIN ("<organisationId>_<pin>") : deux casernes
-// peuvent donc réutiliser le même code à 4 chiffres. La collection n'est
-// pas énumérable (règle "list" réservée aux administrateurs).
+// peuvent donc réutiliser le même code à 4 chiffres. ⚠️ Les règles actuelles
+// (accès équipier temporairement ouvert, voir firestore.rules) autorisent
+// "list" sur /pins à toute session authentifiée : les codes ne sont PAS
+// énumérables seulement une fois la Cloud Function équipier déployée.
 //
 // Reste en Firestore direct (plan gratuit Spark), pas de Cloud Function :
 // tant qu'une seule caserne est réellement active, un équipier ne peut

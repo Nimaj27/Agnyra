@@ -5,13 +5,13 @@
 
 const VERSION       = "v3-8";
 const CACHE_APP     = `sp-app-${VERSION}`;
-const CACHE_STATIC  = "sp-static-4";
+const CACHE_STATIC  = "sp-static-5";
 const CACHE_RUNTIME = "sp-runtime-v1";
 const PREFIXES_APP  = ["sp-app-", "sp-static-", "sp-runtime-"];
 
+// Fichiers lourds ET stables (icônes). geoloc.js/carte.js n'en font plus partie :
+// ils changent avec le code et doivent suivre les mises à jour (voir APPLICATIFS).
 const STATIQUES = [
-  "./js/geoloc.js",
-  "./js/carte.js",
   "./icons/icon192.png",
   "./icons/icon512.png",
   "./icons/maskable192.png",
@@ -36,7 +36,9 @@ const APPLICATIFS = [
   "./js/journal.js",
   "./js/notifications.js",
   "./js/install.js",
-  "./js/maj.js"
+  "./js/maj.js",
+  "./js/geoloc.js",
+  "./js/carte.js"
 ];
 
 // Ces fichiers sont indispensables au démarrage. Si l'un d'eux manque,

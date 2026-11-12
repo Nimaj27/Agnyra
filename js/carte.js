@@ -1,4 +1,6 @@
 import { pointsSecteur } from "./geoloc.js";
+// Échappement HTML des données de secteur affichées dans les popups Leaflet.
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
 // ── Polygones précalculés des secteurs découpés ──
 // Générés par partition de Voronoï sur les 11 zones, à partir des
 // coordonnées GPS réelles de chaque foyer (Base Adresse Nationale).
@@ -258,7 +260,7 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
           fillColor: couleur,
           fillOpacity: secteur.statut==="termine"?0.65:secteur.statut==="en_cours"?0.5:secteur.equipeId?0.4:0.15 };
     const layer=L.geoJSON(geojson,{ style });
-    const popupHtml = `<div style="font-family:Inter,sans-serif;min-width:160px;"><strong>${secteur.nom}</strong><br><span style="color:#666">${secteur.commune}</span><br>👥 ${secteur.equipNom||'Non affecté'}<br><strong style="color:#16A34A">${Number(secteur.totalCollecte||0).toLocaleString('fr-FR')} €</strong></div>`;
+    const popupHtml = `<div style="font-family:Inter,sans-serif;min-width:160px;"><strong>${esc(secteur.nom)}</strong><br><span style="color:#666">${esc(secteur.commune)}</span><br>👥 ${esc(secteur.equipNom||'Non affecté')}<br><strong style="color:#16A34A">${Number(secteur.totalCollecte||0).toLocaleString('fr-FR')} €</strong></div>`;
     layer.bindPopup(popupHtml);
     layer.addTo(map); layers.push(layer);
     if (pointsAdresses.length) {
