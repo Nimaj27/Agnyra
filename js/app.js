@@ -1156,6 +1156,13 @@ async function renderSecteurs() {
     const clef = (nom, commune) => `${nom.trim().toLowerCase()}|${commune.trim().toLowerCase()}`;
     const index = new Map(existants.map(s => [clef(s.nom, s.commune), s]));
 
+    // Colonne facultative « equipe » : nom d'une équipe existante à laquelle
+    // rattacher le secteur (même normalisation que « Affecter par nom »).
+    const normEquipe = (s) => String(s || "").toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/^equipe\s+/i, "").replace(/\s+/g, " ").trim();
+    const equipesParNom = new Map((await lireEquipes()).map(eq => [normEquipe(eq.nom), eq]));
+    let affectes = 0, equipesIntrouvables = [];
+
     for (let i = 1; i < rows2d.length; i++) {
       const values = rows2d[i];
       const row = {};
@@ -1174,19 +1181,30 @@ async function renderSecteurs() {
 
       try {
         const existant = index.get(clef(row.nom, row.commune));
+        let secteurId;
         if (existant) {
           await mettreAJourSecteur(existant.id, donnees);
+          secteurId = existant.id;
           updated++;
         } else {
-          await creerSecteur({ ...donnees, organisationId: APP.organisationId });
+          const ref = await creerSecteur({ ...donnees, organisationId: APP.organisationId });
+          secteurId = ref?.id;
           created++;
+        }
+        if (row.equipe && secteurId) {
+          const eq = equipesParNom.get(normEquipe(row.equipe));
+          const enCours = existant && (existant.statut === STATUT_SECTEUR.EN_COURS || existant.statut === STATUT_SECTEUR.TERMINE);
+          if (!eq) { equipesIntrouvables.push(row.equipe); }
+          else if (!enCours) { await affecterEquipe(secteurId, eq.id, eq.nom); affectes++; }
         }
       } catch(err) {
         console.error('Erreur import ligne', i, err);
         errors++;
       }
     }
-    toast(`Import terminé : ${created} créé(s), ${updated} mis à jour${errors ? `, ${errors} erreur(s)` : ''}`, errors ? "error" : "success");
+    const nbIntrouv = new Set(equipesIntrouvables).size;
+    toast(`Import terminé : ${created} créé(s), ${updated} mis à jour${affectes ? `, ${affectes} affecté(s) à une équipe` : ''}${nbIntrouv ? `, ${nbIntrouv} équipe(s) introuvable(s) : ${[...new Set(equipesIntrouvables)].slice(0, 3).join(' | ')}` : ''}${errors ? `, ${errors} erreur(s)` : ''}`,
+          (errors || nbIntrouv) ? "error" : "success");
     e.target.value = '';
   });
 

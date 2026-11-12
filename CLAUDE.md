@@ -349,6 +349,16 @@ qu'il liste explicitement (sans rues → 0 boîte, pas toute la commune engloban
   chantier 4), totaux de secteur recalculés par lecture-écriture (course possible),
   écritures hors ligne attendues jusqu'à l'accusé serveur, coût en lectures Firestore.
 
+## Import CSV des secteurs : colonne « equipe » (12/11)
+
+Le CSV d'import des secteurs accepte une colonne facultative `equipe` (nom d'une
+équipe existante, même normalisation que « Affecter par nom » : minuscules, sans
+accents, sans « équipe » en tête). Elle rattache le secteur à l'équipe après
+création/mise à jour — utile quand plusieurs secteurs (communes) partagent une
+même équipe de tournée, ce que « Affecter par nom » ne sait pas faire. Les secteurs
+« en cours » ou « terminés » ne sont pas réaffectés. Colonnes : nom, commune,
+description, rues, couleur, objectif, equipe.
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)
