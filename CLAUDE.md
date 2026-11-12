@@ -320,6 +320,16 @@ commune. Désormais (`afficherSecteursSurCarte`, `js/carte.js`) :
   repli est le rouge `#EF4444`, la carte utilise la couleur du secteur avant
   celle de l'équipe.
 
+## Communes déléguées dans la base d'adresses (12/11)
+
+`GEO_ADRESSES` (`js/geoloc.js`) n'a pas d'entrée pour Saint-Aquilin-de-Pacy :
+ses voies sont rangées sous Pacy-sur-Eure. Un secteur de cette commune avait
+donc 0 boîte et 0 rue reconnue. `COMMUNES_ALIAS` (`geoloc.js`) renvoie vers la
+commune englobante via `donneesCommune()`, utilisée par toutes les fonctions de
+lecture d'adresses. Un secteur d'une commune aliasée ne compte que les rues
+qu'il liste explicitement (sans rues → 0 boîte, pas toute la commune englobante).
+À étendre dans `COMMUNES_ALIAS` si une autre commune déléguée pose le même problème.
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)

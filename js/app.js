@@ -3114,12 +3114,19 @@ async function renderConfig() {
     const btn = document.getElementById("btn-sauvegarde");
     setLoading(btn, true);
     try {
+      // Chaque partie est lue séparément : si Firestore en refuse une
+      // (règles de sécurité), on sauvegarde le reste et on signale laquelle manque.
+      const avertissements = [];
+      const lire = async (nom, fn, defaut) => {
+        try { return await fn(); }
+        catch (e) { avertissements.push(`${nom} (${e?.code || e?.message || "erreur"})`); return defaut; }
+      };
       const [secteurs, equipes, passages, saisons, cfg] = await Promise.all([
-        fsGetAllOrg(COLLECTIONS.SECTEURS),
-        fsGetAllOrg(COLLECTIONS.EQUIPES),
-        fsGetAllOrg(COLLECTIONS.PASSAGES),
-        exporterHistoriqueComplet(),
-        lireConfig()
+        lire("secteurs", () => fsGetAllOrg(COLLECTIONS.SECTEURS), []),
+        lire("équipes", () => fsGetAllOrg(COLLECTIONS.EQUIPES), []),
+        lire("passages", () => fsGetAllOrg(COLLECTIONS.PASSAGES), []),
+        lire("historique", () => exporterHistoriqueComplet(), []),
+        lire("configuration", () => lireConfig(), null)
       ]);
       let pins = {};
       try { pins = await lirePins(); } catch(e) {}
@@ -3127,6 +3134,7 @@ async function renderConfig() {
         genere: new Date().toISOString(),
         version: 1,
         parQui: APP.user?.email || '',
+        partiesNonLues: avertissements,
         config: cfg || {},
         secteurs,
         equipes: equipes.map(e => ({ ...e, pin: pins[e.id] || e.pin || null })),
@@ -3140,7 +3148,11 @@ async function renderConfig() {
       a.download = `sauvegarde-calendriers-${dateLocaleISO()}.json`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast(`Sauvegarde : ${secteurs.length} secteurs · ${equipes.length} équipes · ${passages.length} passages`, "success");
+      if (avertissements.length) {
+        toast(`Sauvegarde INCOMPLÈTE — non lu : ${avertissements.join(", ")}`, "error");
+      } else {
+        toast(`Sauvegarde : ${secteurs.length} secteurs · ${equipes.length} équipes · ${passages.length} passages`, "success");
+      }
     } catch(e) {
       toast("Erreur : " + e.message, "error");
     }

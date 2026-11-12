@@ -173,7 +173,8 @@ export async function exporterHistoriqueComplet() {
   const saisons = await lireToutesLesSaisons();
   return Promise.all(saisons.map(async s => {
     if (s.adresses || s.stockageAdresses !== "chunks-v1") return s;
-    return { ...s, adresses: await lireChunksAdresse(s.annee) };
+    try { return { ...s, adresses: await lireChunksAdresse(s.annee) }; }
+    catch (e) { return { ...s, adressesNonLues: true }; }
   }));
 }
 
