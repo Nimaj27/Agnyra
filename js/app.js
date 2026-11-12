@@ -902,8 +902,13 @@ async function renderDashboard() {
     // Légende dynamique : une couleur par équipe
     const legend = document.getElementById("map-legend");
     if (legend) {
-      legend.innerHTML = `<span><i style="background:#9CA3AF"></i> Non affecté</span>` +
-        equipes.map((eq, i) => `<span><i style="background:${PALETTE_EQUIPES[equipes.map(e=>e.id).sort().indexOf(eq.id) % PALETTE_EQUIPES.length]}"></i> ${h(eq.nom)}</span>`).join('');
+      // Même règle que la carte : couleur choisie pour le secteur, sinon couleur de son équipe
+      const idsEquipes = equipes.map(e => e.id).sort();
+      const couleurSecteur = s => s.couleur
+        || (s.equipeId ? PALETTE_EQUIPES[idsEquipes.indexOf(s.equipeId) % PALETTE_EQUIPES.length] : "#9CA3AF");
+      legend.innerHTML = [...secteurs]
+        .sort((x, y) => x.nom.localeCompare(y.nom, "fr", { numeric: true }))
+        .map(s => `<span><i style="background:${couleurSecteur(s)}"></i> ${h(s.nom)}</span>`).join('');
     }
   }
 

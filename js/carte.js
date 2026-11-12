@@ -1,3 +1,4 @@
+import { pointsSecteur } from "./geoloc.js";
 // ── Polygones précalculés des secteurs découpés ──
 // Générés par partition de Voronoï sur les 11 zones, à partir des
 // coordonnées GPS réelles de chaque foyer (Base Adresse Nationale).
@@ -138,6 +139,25 @@ async function calculerZoneApproximative(rues, commune) {
   }
 }
 
+// ── Zone d'un secteur construite à partir des adresses réelles de ses rues ──
+// (base d'adresses embarquée : aucun appel réseau, et les zones épousent les
+// rues du secteur au lieu d'une enveloppe tirée entre quelques points)
+async function zoneDepuisAdresses(secteur) {
+  const pts = pointsSecteur(secteur);
+  if (pts.length < 3) return null;
+  try { await chargerTurf(); } catch(e) { return null; }
+  try {
+    const fc = turf.featureCollection(pts.map(p => turf.point(p)));
+    let hull = null;
+    for (const maxEdge of [0.25, 0.4, 0.7, 1.2]) {
+      try { hull = turf.concave(fc, { maxEdge, units: "kilometers" }); if (hull) break; } catch(e) {}
+    }
+    if (!hull) { try { hull = turf.convex(fc); } catch(e) {} }
+    if (!hull) return null;
+    return turf.buffer(hull, 0.03, { units: "kilometers" }) || hull;
+  } catch(e) { return null; }
+}
+
 async function fetchContourCommune(codeInsee) {
   if (_contourCache[codeInsee]) return _contourCache[codeInsee];
   try {
@@ -166,11 +186,34 @@ export async function initCarte(containerId, options={}) {
 }
 export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
   const layers=[], bounds=[];
+  const rendu = L.canvas({ padding: 0.5 }); // des centaines d'adresses : rendu canvas
 
   // Repérer les communes découpées en plusieurs secteurs : elles seules ont
   // besoin d'un géocodage par rues (sinon les contours se superposeraient).
   const nbParCommune = {};
   secteurs.forEach(s => { nbParCommune[s.commune] = (nbParCommune[s.commune]||0) + 1; });
+
+  // Zones issues des adresses réelles, pour les secteurs sans polygone précalculé.
+  // Dans une commune découpée, les petits secteurs sont tracés d'abord et les plus
+  // grands se creusent autour d'eux : aucune zone ne recouvre une autre.
+  const zonesAdresses = new Map();
+  const parCommuneZ = {};
+  secteurs.forEach(s => {
+    if (!POLYGONES_SECTEURS[s.nom] && nbParCommune[s.commune] > 1 && s.rues && s.rues.length > 0) {
+      (parCommuneZ[s.commune] = parCommuneZ[s.commune] || []).push(s);
+    }
+  });
+  for (const liste of Object.values(parCommuneZ)) {
+    const tries = liste.map(s => ({ s, n: pointsSecteur(s).length })).filter(x => x.n >= 3).sort((a, b) => a.n - b.n);
+    const faits = [];
+    for (const { s } of tries) {
+      let zone = await zoneDepuisAdresses(s);
+      if (!zone) continue;
+      for (const prev of faits) { try { zone = turf.difference(zone, prev) || zone; } catch(e) {} }
+      faits.push(zone);
+      zonesAdresses.set(s.id, { type: "Feature", geometry: zone.geometry, properties: {} });
+    }
+  }
 
   for (const secteur of secteurs) {
     const codeInsee=COMMUNES_INSEE[secteur.commune]; if(!codeInsee) continue;
@@ -182,18 +225,32 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     if (POLYGONES_SECTEURS[secteur.nom]) {
       geojson = { type: "Feature", geometry: POLYGONES_SECTEURS[secteur.nom], properties: {} };
     }
-    // 2. Sinon, géocodage à la volée pour les découpages non précalculés
+    // 2. Sinon, zone construite à partir des adresses réelles des rues du secteur
+    else if (zonesAdresses.has(secteur.id)) {
+      geojson = zonesAdresses.get(secteur.id);
+    }
+    // 3. Sinon, géocodage à la volée pour les découpages non précalculés
     else if (communeDecoupee && secteur.rues && secteur.rues.length > 0) {
       geojson = await calculerZoneApproximative(secteur.rues, secteur.commune);
     }
-    // 3. Sinon, contour communal officiel
+    // 4. Dans une commune découpée, un secteur dont on ne sait pas situer les rues
+    //    (liste « À définir », rues vides ou introuvables) n'est pas tracé : lui
+    //    peindre toute la commune recouvrirait ses voisins.
+    if (!geojson && communeDecoupee) continue;
+    // 5. Sinon, contour communal officiel
     if (!geojson) geojson = await fetchContourCommune(codeInsee);
     if (!geojson) continue;
     // Priorité à la couleur choisie pour le secteur (Modifier) — repli sur la couleur d'équipe si non définie
     const couleur = secteur.couleur || getCouleurEquipe(secteur.equipeId,equipes);
     // Communes découpées : bordure colorée + remplissage plus léger pour
     // que les éventuels chevauchements restent lisibles
-    const style = communeDecoupee
+    // Secteur dont on connaît les adresses : ce sont elles, colorées par secteur, qui
+    // le distinguent de ses voisins ; la zone n'est plus qu'un fond léger.
+    const pointsAdresses = (communeDecoupee && !POLYGONES_SECTEURS[secteur.nom]) ? pointsSecteur(secteur) : [];
+    const style = pointsAdresses.length
+      ? { color: couleur, weight: 1.5, opacity: 0.7, fillColor: couleur,
+          fillOpacity: secteur.statut==="termine"?0.22:secteur.statut==="en_cours"?0.18:0.1 }
+      : communeDecoupee
       ? { color: couleur, weight: 2.5, opacity: 1,
           fillColor: couleur,
           fillOpacity: secteur.statut==="termine"?0.45:secteur.statut==="en_cours"?0.35:secteur.equipeId?0.25:0.12 }
@@ -201,8 +258,14 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
           fillColor: couleur,
           fillOpacity: secteur.statut==="termine"?0.65:secteur.statut==="en_cours"?0.5:secteur.equipeId?0.4:0.15 };
     const layer=L.geoJSON(geojson,{ style });
-    layer.bindPopup(`<div style="font-family:Inter,sans-serif;min-width:160px;"><strong>${secteur.nom}</strong><br><span style="color:#666">${secteur.commune}</span><br>👥 ${secteur.equipNom||'Non affecté'}<br><strong style="color:#16A34A">${Number(secteur.totalCollecte||0).toLocaleString('fr-FR')} €</strong></div>`);
+    const popupHtml = `<div style="font-family:Inter,sans-serif;min-width:160px;"><strong>${secteur.nom}</strong><br><span style="color:#666">${secteur.commune}</span><br>👥 ${secteur.equipNom||'Non affecté'}<br><strong style="color:#16A34A">${Number(secteur.totalCollecte||0).toLocaleString('fr-FR')} €</strong></div>`;
+    layer.bindPopup(popupHtml);
     layer.addTo(map); layers.push(layer);
+    if (pointsAdresses.length) {
+      const points = L.layerGroup(pointsAdresses.map(([lon, lat]) =>
+        L.circleMarker([lat, lon], { renderer: rendu, radius: 3.5, color: "#FFFFFF", weight: 1, fillColor: couleur, fillOpacity: 0.95 }).bindPopup(popupHtml)));
+      points.addTo(map); layers.push(points);
+    }
     const b=layer.getBounds(); if(b.isValid()) bounds.push(b);
   }
   if (bounds.length>0) { let ab=bounds[0]; bounds.forEach(b=>{ab=ab.extend(b);}); map.fitBounds(ab,{padding:[20,20]}); }
