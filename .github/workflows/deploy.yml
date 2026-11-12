@@ -34,6 +34,14 @@ jobs:
           test -f manifest.json
           node --check sw.js
           for f in js/*.js; do node --check "$f"; done
+          python3 - <<'PY'
+          import re
+          s = open("index-monofichier.html", encoding="utf-8").read()
+          m = re.search(r'<script type="module">(.*?)</script>', s, re.S)
+          assert m, "bloc <script type=module> introuvable"
+          open("/tmp/monofichier.mjs", "w", encoding="utf-8").write(m.group(1))
+          PY
+          node --check /tmp/monofichier.mjs
 
       - name: Déployer l'hébergement
         uses: FirebaseExtended/action-hosting-deploy@v0

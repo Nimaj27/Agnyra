@@ -3,20 +3,13 @@
 // Agnyra — Pilotez vos campagnes calendriers
 // ============================================================
 
-import { statsGlobalesTournee } from "./tournee.js";
+import { statsGlobalesTournee, dateLocaleISO, jourLocal } from "./tournee.js";
 
 const CLE_DERNIER_RESUME = "sp_dernier_resume";
 const CLE_HEURE_RESUME   = "sp_heure_resume";
 const HEURE_DEFAUT       = 20; // 20h
 
 // ── Support et permission ────────────────────────────────────────
-function dateLocaleISO(date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
 export function notifsDisponibles() {
   return "Notification" in window;
 }
@@ -59,7 +52,7 @@ function marquerResumeEnvoye() {
 // passages : liste complète des passages
 export function construireResume(stats, passages) {
   const aujourdhui = dateLocaleISO();
-  const passagesDuJour = (passages || []).filter(p => (p.datePassage || "").slice(0, 10) === aujourdhui);
+  const passagesDuJour = (passages || []).filter(p => jourLocal(p.datePassage) === aujourdhui);
 
   let collecteDuJour = 0;
   let donsDuJour = 0;

@@ -13,6 +13,7 @@ import {
   ecouterPassagesSecteur,
   lireConfig, sauvegarderConfig,
   exporterBilanCSV, telechargerCSV, celluleCSV, effacerTousLesPassages,
+  dateLocaleISO, jourLocal, heureLocale,
   STATUT_PASSAGE, STATUT_PASSAGE_LABEL, MODE_PAIEMENT
 } from "./tournee.js";
 import {
@@ -124,20 +125,6 @@ function h(value) {
 // un gestionnaire onclick inline. Le JSON est ensuite échappé pour l'attribut HTML.
 function ja(value) {
   return h(JSON.stringify(String(value ?? "")));
-}
-
-function dateLocaleISO(date = new Date()) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function heureLocale(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatMontant(val) {
@@ -1169,6 +1156,13 @@ async function renderSecteurs() {
     const clef = (nom, commune) => `${nom.trim().toLowerCase()}|${commune.trim().toLowerCase()}`;
     const index = new Map(existants.map(s => [clef(s.nom, s.commune), s]));
 
+    // Colonne facultative « equipe » : nom d'une équipe existante à laquelle
+    // rattacher le secteur (même normalisation que « Affecter par nom »).
+    const normEquipe = (s) => String(s || "").toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/^equipe\s+/i, "").replace(/\s+/g, " ").trim();
+    const equipesParNom = new Map((await lireEquipes()).map(eq => [normEquipe(eq.nom), eq]));
+    let affectes = 0, equipesIntrouvables = [];
+
     for (let i = 1; i < rows2d.length; i++) {
       const values = rows2d[i];
       const row = {};
@@ -1187,19 +1181,30 @@ async function renderSecteurs() {
 
       try {
         const existant = index.get(clef(row.nom, row.commune));
+        let secteurId;
         if (existant) {
           await mettreAJourSecteur(existant.id, donnees);
+          secteurId = existant.id;
           updated++;
         } else {
-          await creerSecteur({ ...donnees, organisationId: APP.organisationId });
+          const ref = await creerSecteur({ ...donnees, organisationId: APP.organisationId });
+          secteurId = ref?.id;
           created++;
+        }
+        if (row.equipe && secteurId) {
+          const eq = equipesParNom.get(normEquipe(row.equipe));
+          const enCours = existant && (existant.statut === STATUT_SECTEUR.EN_COURS || existant.statut === STATUT_SECTEUR.TERMINE);
+          if (!eq) { equipesIntrouvables.push(row.equipe); }
+          else if (!enCours) { await affecterEquipe(secteurId, eq.id, eq.nom); affectes++; }
         }
       } catch(err) {
         console.error('Erreur import ligne', i, err);
         errors++;
       }
     }
-    toast(`Import terminé : ${created} créé(s), ${updated} mis à jour${errors ? `, ${errors} erreur(s)` : ''}`, errors ? "error" : "success");
+    const nbIntrouv = new Set(equipesIntrouvables).size;
+    toast(`Import terminé : ${created} créé(s), ${updated} mis à jour${affectes ? `, ${affectes} affecté(s) à une équipe` : ''}${nbIntrouv ? `, ${nbIntrouv} équipe(s) introuvable(s) : ${[...new Set(equipesIntrouvables)].slice(0, 3).join(' | ')}` : ''}${errors ? `, ${errors} erreur(s)` : ''}`,
+          (errors || nbIntrouv) ? "error" : "success");
     e.target.value = '';
   });
 
@@ -1910,7 +1915,7 @@ function renderPassagesList(passages, secteurs) {
           ${passages.map(p => {
             const s = secteurMap[p.secteurId] || {};
             return `<tr class="tr--${p.statut}">
-              <td>${(p.datePassage || '').slice(0,10)}</td>
+              <td>${jourLocal(p.datePassage)}</td>
               <td>${h(p.equipeNom || '—')}</td>
               <td>${h(s.nom || '—')}</td>
               <td>${h(p.adresse || '—')}</td>
@@ -2847,9 +2852,9 @@ async function renderJournal() {
     for (const e of entrees) {
       const d = e.date ? new Date(e.date) : null;
       const ec = (e.montantApres || 0) - (e.montantAvant || 0);
-      csv += `"${d ? d.toLocaleDateString('fr-FR') : ''}";"${d ? d.toLocaleTimeString('fr-FR') : ''}";`
-            + [e.parQui || '', e.equipeNom || '', ACTION_LABEL[e.action] || e.action].map(celluleCSV).join(';') + ';' 
-           + `"${e.contexte || ''}";"${e.avant || ''}";"${e.apres || ''}";"${ec.toFixed(2)}"\n`;
+      csv += [d ? d.toLocaleDateString('fr-FR') : '', d ? d.toLocaleTimeString('fr-FR') : '',
+              e.parQui || '', e.equipeNom || '', ACTION_LABEL[e.action] || e.action,
+              e.contexte || '', e.avant || '', e.apres || ''].map(celluleCSV).join(';') + `;"${ec.toFixed(2)}"\n`;
     }
     telechargerCSV(csv, `journal-modifications-${dateLocaleISO()}.csv`);
     toast("Journal exporté", "success");
@@ -3680,7 +3685,7 @@ async function renderTerrainPassages() {
       const doublon = await verifierDoublonAdresse(secteurId, adresse);
       if (doublon) {
         const qui = doublon.saisiPar || doublon.equipeNom || "quelqu'un";
-        const quand = doublon.datePassage ? doublon.datePassage.slice(11, 16) : "";
+        const quand = heureLocale(doublon.datePassage);
         const detail = doublon.statut === "don"
           ? `${formatMontant(doublon.montant)}`
           : STATUT_PASSAGE_LABEL[doublon.statut] || doublon.statut;
@@ -3800,7 +3805,7 @@ async function renderTerrainPassages() {
           <span class="passage-badge-visite ${(p.nbPassages||1) > 1 ? 'passage-badge-visite--revisite' : ''}">${libellePassage(p.nbPassages)}</span>
         </div>
         <span class="passage-meta">
-          ${p.saisiPar ? `<span class="passage-auteur" title="Saisi par ${p.saisiPar}">${p.saisiPar.slice(0,2).toUpperCase()}</span>` : ''}
+          ${p.saisiPar ? `<span class="passage-auteur" title="Saisi par ${h(p.saisiPar)}">${h(p.saisiPar.slice(0,2).toUpperCase())}</span>` : ''}
           <span class="passage-heure">${heureLocale(p.datePassage)}</span>
         </span>
         <button class="passage-edit-btn" onclick="corrigerPassage('${p.id}', '${secteurId}')" title="Corriger">✏️</button>
@@ -3829,7 +3834,7 @@ window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
     document.body.appendChild(modal);
   }
 
-  const heure = (p.datePassage || '').slice(11, 16);
+  const heure = heureLocale(p.datePassage);
   modal.innerHTML = `
     <div class="modal-inner">
       <h2>Corriger le passage</h2>
@@ -4033,7 +4038,7 @@ function majStatsTerrain(secteur, passages) {
   const restantes = totalBoites > 0 ? Math.max(0, totalBoites - traites) : null;
 
   // Totaux du jour (toutes équipes sur ce secteur)
-  const duJour = passages.filter(p => (p.datePassage || '').slice(0, 10) === aujourdhui);
+  const duJour = passages.filter(p => jourLocal(p.datePassage) === aujourdhui);
   const donsJour = duJour.filter(p => p.statut === "don");
   const offertsJour = duJour.filter(p => p.statut === "offert");
   const montantJour = donsJour.reduce((s, p) => s + Number(p.montant || 0), 0);
@@ -4155,7 +4160,7 @@ window.afficherMonBilan = async () => {
     // ── Détail par jour ──
     const parJour = {};
     for (const p of passages) {
-      const j = (p.datePassage || '').slice(0, 10);
+      const j = jourLocal(p.datePassage);
       if (!j) continue;
       if (!parJour[j]) parJour[j] = { dons:0, offerts:0, refus:0, absents:0, montant:0, secteurs:new Set() };
       const d = parJour[j];
@@ -4437,7 +4442,7 @@ function majModeRue(secteur, passages) {
           return `<button class="mr-num ${st ? 'mr-num--fait' : ''} ${aj ? 'mr-num--ajout' : ''} ${inh ? 'mr-num--inhab' : ''}"
             style="${inh ? '' : c ? `background:${c.bg};border-color:${c.bg};color:#fff` : ''}"
             title="${inh ? 'Inhabitée' : c ? c.label : 'Non visité'}${aj ? ' — ajouté' : ''}${nbFus ? ` — regroupe ${nbFus+1} adresses` : ''}${nt ? ` — 📌 ${h(nt.texte)}` : ''}${aDonne ? ` — a donné ${hist[0].montant.toFixed(2)} € en ${hist[0].annee}` : ''}"
-            onclick="saisirNumero('${n}','${rueActive.replace(/'/g,"\\'")}')">${n}${nbFus ? `<sup>+${nbFus}</sup>` : ''}${nt ? '<i class="mr-pin">📌</i>' : ''}${aDonne ? '<i class="mr-don">€</i>' : ''}</button>`;
+            onclick="saisirNumero(${ja(n)},${ja(rueActive)})">${n}${nbFus ? `<sup>+${nbFus}</sup>` : ''}${nt ? '<i class="mr-pin">📌</i>' : ''}${aDonne ? '<i class="mr-don">€</i>' : ''}</button>`;
         }).join('')}
       </div>
     </div>`;
@@ -4601,10 +4606,10 @@ window.saisirNumero = async (numero, rue) => {
   modal.classList.remove("hidden");
   modal.innerHTML = `
     <div class="modal-inner mn-modal">
-      <h2>${adresse}</h2>
+      <h2>${h(adresse)}</h2>
       ${existant ? `<p class="mn-existant">Déjà enregistré : <strong>${STATUT_PASSAGE_LABEL[existant.statut]}</strong>${existant.statut==='don'?` (${formatMontant(existant.montant)})`:''}</p>` : ''}
-      ${fusion ? `<p class="mn-fusion">🔗 Regroupe : ${[fusion.principale, ...(fusion.secondaires||[])].join(' + ')}
-        <button class="mn-lien" onclick="mnAnnulerFusion('${fusion.principale.replace(/'/g,"\\'")}')">séparer</button></p>` : ''}
+      ${fusion ? `<p class="mn-fusion">🔗 Regroupe : ${h([fusion.principale, ...(fusion.secondaires||[])].join(' + '))}
+        <button class="mn-lien" onclick="mnAnnulerFusion(${ja(fusion.principale)})">séparer</button></p>` : ''}
       ${inhabitee ? `<p class="mn-inhab">🏚️ Marquée inhabitée — hors décompte
         <button class="mn-lien" onclick="mnInhabitee(false)">remettre</button></p>` : ''}
       <div class="mn-statuts">
@@ -4614,10 +4619,10 @@ window.saisirNumero = async (numero, rue) => {
         <button class="mn-btn mn-btn--absent" onclick="mnChoisir('absent')">🔔 Absent</button>
       </div>
       ${(() => {
-        const h = (APP._histAdresses || {})[normAdresse(adresse)];
-        const r = resumeHistorique(h);
+        const histo = (APP._histAdresses || {})[normAdresse(adresse)];
+        const r = resumeHistorique(histo);
         if (!r || r.length === 0) return '';
-        return `<p class="mn-histo">📊 Années passées : ${r.slice(0, 3).join(' · ')}</p>`;
+        return `<p class="mn-histo">📊 Années passées : ${h(r.slice(0, 3).join(' · '))}</p>`;
       })()}
       ${notePerm ? `<p class="mn-note-perm">📌 ${h(notePerm.texte)}
         <button class="mn-lien" onclick="mnNote()">modifier</button></p>` : ''}
@@ -4637,8 +4642,8 @@ window.saisirNumero = async (numero, rue) => {
       </div>
       <div class="modal-actions">
         <button id="mn-valider" class="btn btn--primary" disabled>Enregistrer</button>
-        ${existant ? `<button class="btn btn--danger" onclick="mnSupprimer('${existant.id}','${secteurId}')">🗑️ Supprimer</button>` : ''}
-        ${estAjout && !existant ? `<button class="btn btn--ghost btn--sm" onclick="retirerNumeroAjoute('${rue.replace(/'/g,"\\'")}','${numero}')">Retirer de la liste</button>` : ''}
+        ${existant ? `<button class="btn btn--danger" onclick="mnSupprimer(${ja(existant.id)},${ja(secteurId)})">🗑️ Supprimer</button>` : ''}
+        ${estAjout && !existant ? `<button class="btn btn--ghost btn--sm" onclick="retirerNumeroAjoute(${ja(rue)},${ja(numero)})">Retirer de la liste</button>` : ''}
         <button class="btn btn--ghost" onclick="document.getElementById('modal-num').classList.add('hidden')">Annuler</button>
       </div>
     </div>

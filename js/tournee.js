@@ -181,6 +181,27 @@ export async function lireConfig() { return fsGet(COLLECTIONS.CONFIG, "tournee")
 export async function sauvegarderConfig(data) { return fsSet(COLLECTIONS.CONFIG, "tournee", data); }
 
 
+// ── Dates locales ────────────────────────────────────────────────
+// datePassage est stocké en UTC (toISOString) : le jour et l'heure à afficher
+// ou à regrouper sont ceux de l'appareil, pas les 10/5 premiers caractères.
+export function dateLocaleISO(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+export function jourLocal(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : dateLocaleISO(d);
+}
+export function heureLocale(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
 // Cellule CSV compatible Excel : double les guillemets et neutralise les
 // préfixes interprétés comme des formules (=, +, -, @).
 export function celluleCSV(value) {
@@ -205,7 +226,7 @@ export async function exporterBilanCSV() {
   const sorted = [...passages].sort((a,b)=>(a.datePassage||"").localeCompare(b.datePassage||""));
   for (const p of sorted) {
     const s = secteurMap[p.secteurId]||{};
-    csv += ligne((p.datePassage||"").slice(0,10), p.equipeNom||'', s.nom||'', s.commune||'', p.adresse||'', p.statut, p.modePaiement||'', p.montant?Number(p.montant).toFixed(2):'0.00', p.nomDonateur||'', p.note||'');
+    csv += ligne(jourLocal(p.datePassage), p.equipeNom||'', s.nom||'', s.commune||'', p.adresse||'', p.statut, p.modePaiement||'', p.montant?Number(p.montant).toFixed(2):'0.00', p.nomDonateur||'', p.note||'');
   }
   csv += "\n\nFOYERS À RELANCER\n" + ligne("Équipe","Secteur","Commune","Adresse","Note");
   for (const p of passages.filter(p=>p.aRelancer)) {

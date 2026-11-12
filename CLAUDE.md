@@ -330,6 +330,35 @@ lecture d'adresses. Un secteur d'une commune aliasée ne compte que les rues
 qu'il liste explicitement (sans rues → 0 boîte, pas toute la commune englobante).
 À étendre dans `COMMUNES_ALIAS` si une autre commune déléguée pose le même problème.
 
+## Revue de code et corrections (12/11)
+
+- **XSS** : popup de la carte (`carte.js`, helper local `esc`), fenêtre de saisie
+  d'un numéro et infobulle « Saisi par » (`app.js`) échappent désormais les
+  données Firestore (`h()`/`ja()`).
+- **Dates** : `datePassage` est stocké en UTC. Helpers partagés dans `tournee.js`
+  (`dateLocaleISO`, `jourLocal`, `heureLocale`) — ne plus faire `slice(0,10)` /
+  `slice(11,16)` sur `datePassage` (décalage de 1-2 h, passage de minuit mal classé).
+- **Monofichier** : une déclaration dupliquée de `dateLocaleISO` le rendait invalide
+  sans que la CI ne le voie ; la CI et le déploiement font maintenant aussi un
+  `node --check` du script du monofichier.
+- **Service worker** : `geoloc.js`/`carte.js` ne sont plus en cache figé
+  (`STATIQUES`) mais suivent les mises à jour comme le reste du code ;
+  `CACHE_STATIC` → `sp-static-5`.
+- **Sauvegarde complète** : chaque partie est lue séparément (`partiesNonLues`).
+- Reste ouvert (décisions) : règles Firestore ouvertes côté équipier (voir
+  chantier 4), totaux de secteur recalculés par lecture-écriture (course possible),
+  écritures hors ligne attendues jusqu'à l'accusé serveur, coût en lectures Firestore.
+
+## Import CSV des secteurs : colonne « equipe » (12/11)
+
+Le CSV d'import des secteurs accepte une colonne facultative `equipe` (nom d'une
+équipe existante, même normalisation que « Affecter par nom » : minuscules, sans
+accents, sans « équipe » en tête). Elle rattache le secteur à l'équipe après
+création/mise à jour — utile quand plusieurs secteurs (communes) partagent une
+même équipe de tournée, ce que « Affecter par nom » ne sait pas faire. Les secteurs
+« en cours » ou « terminés » ne sont pas réaffectés. Colonnes : nom, commune,
+description, rues, couleur, objectif, equipe.
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)
