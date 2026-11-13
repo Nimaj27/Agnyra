@@ -715,6 +715,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.9", date: "2026-11-13", texte: "Côté équipier : la mini-carte n'affiche plus toute la commune mais seulement les adresses du secteur ; « Dans quel secteur suis-je ? » repère le bon secteur même quand la commune en compte plusieurs ; les rues absentes de la base d'adresses (HLM, résidences, lieux-dits) sont maintenant proposées dans la saisie rapide pour y ajouter des numéros." },
   { version: "1.8", date: "2026-11-12", texte: "Chaque secteur affiche son nombre réel de boîtes aux lettres (adresses de la base + numéros ajoutés − adresses fusionnées − inhabitées), avec le total sur la liste des secteurs et un avertissement pour les rues non comptées. Le même calcul sert maintenant aux statistiques, au bilan et au terrain." },
   { version: "1.7", date: "2026-10-02", texte: "Le terrain affiche désormais le numéro de passage à un foyer (1er passage, 2ème passage…) : liste des passages, foyers à relancer et fenêtres de relance/correction." },
   { version: "1.6", date: "2026-10-01", texte: "Nouvelle présentation pour Équipes, Historique, Classement, Statistiques et le choix du membre : cartes et graphiques plus lisibles, répartition par moyen de paiement ajoutée." },
@@ -3422,7 +3423,7 @@ function renderTerrainSecteurs(secteurs) {
               <span class="tsr-txt"><strong style="color:${col}">${rest}</strong> boîte${rest!==1?'s':''} restante${rest!==1?'s':''} sur ${tot}</span>
             </div>`;
           })()}
-          ${s.rues?.length ? `<div class="terrain-secteur-rues">${s.rues.join(' · ')}</div>` : ''}
+          ${s.rues?.length ? `<div class="terrain-secteur-rues">${h(s.rues.join(' · '))}</div>` : ''}
         </div>
       `).join('')}
     </div>
@@ -4325,12 +4326,27 @@ function normAdr(s) {
     .replace(/[^a-z0-9]/g, '');
 }
 
+// Rues proposées à l'équipier : celles de la base d'adresses, plus celles saisies dans
+// le secteur mais absentes de la base (HLM, résidences, lieux-dits). Ces dernières n'ont
+// pas de numéros connus : l'équipier les ajoute lui-même (« Ajouter un numéro ou un nom »).
+function ruesTerrain(secteur) {
+  const rues = ruesDuSecteur(secteur);
+  const connues = new Set(rues.map(r => normAdr(r.rue)));
+  for (const entree of secteur.rues || []) {
+    const nom = String(entree).replace(/\s*\[[^\]]*\]\s*$/, '').trim();
+    if (!nom || connues.has(normAdr(nom))) continue;
+    connues.add(normAdr(nom));
+    rues.push({ rue: nom, foyers: lireComplements(secteur, nom).length, restriction: null, horsBase: true });
+  }
+  return rues.sort((a, b) => a.rue.localeCompare(b.rue, "fr"));
+}
+
 // Affiche le sélecteur de rue, ou la grille si une rue est active
 function majModeRue(secteur, passages) {
   const box = document.getElementById("mode-rue");
   if (!box) return;
 
-  const rues = ruesDuSecteur(secteur);
+  const rues = ruesTerrain(secteur);
   if (rues.length === 0) { box.innerHTML = ''; return; }
 
   const rueActive = APP._rueActive;
@@ -4342,7 +4358,7 @@ function majModeRue(secteur, passages) {
     for (const r of rues) {
       const { rue, foyers } = r;
       let numeros = [];
-      try { numeros = numerosDeRue(secteur.commune, rue, r.restriction); } catch(e) {}
+      try { numeros = r.horsBase ? lireComplements(secteur, rue) : numerosDeRue(secteur.commune, rue, r.restriction); } catch(e) {}
       const faits = numeros.filter(n =>
         passages.some(p => normAdr(p.adresse) === normAdr(`${n} ${rue}`))
       ).length;
@@ -4369,7 +4385,7 @@ function majModeRue(secteur, passages) {
             const col = pct >= 100 ? '#16A34A' : pct > 0 ? '#EAB308' : 'var(--gris-bord)';
             return `<button class="mr-rue" data-rue="${h(rue)}"
                       onclick="activerRue(${ja(rue)})">
-              <span class="mr-rue-nom">${h(rue)}${partagee ? ' <em class="mr-part">partagée</em>' : ''}</span>
+              <span class="mr-rue-nom">${h(rue)}${partagee ? ' <em class="mr-part">partagée</em>' : ''}${r.horsBase ? ' <em class="mr-part">hors base</em>' : ''}</span>
               <span class="mr-rue-prog" style="color:${col}">${a.faits}/${a.total}</span>
             </button>`;
           }).join('')}
@@ -4394,11 +4410,8 @@ function majModeRue(secteur, passages) {
   const restrict = infoRue ? infoRue.restriction : null;
   let numeros = [];
   try { numeros = numerosDeRue(secteur.commune, rueActive, restrict); } catch(e) {}
-  if (numeros.length === 0) {
-    box.innerHTML = `<div class="mr-vide">Aucun numéro connu pour « ${h(rueActive)} ».
-      <button class="mr-quitter" onclick="quitterRue()">Retour</button></div>`;
-    return;
-  }
+  // Rue absente de la base d'adresses (HLM, résidence, lieu-dit…) : on affiche quand même
+  // la grille (vide) avec le bouton « Ajouter un numéro ou un nom », pour pouvoir saisir.
 
   // Numéros ajoutés manuellement (stockés dans le secteur → partagés et durables)
   const ajouts = lireComplements(secteur, rueActive);
@@ -4477,11 +4490,12 @@ function majModeRue(secteur, passages) {
       </div>
       <div class="ts-barre"><div class="ts-barre-fill" style="width:${pct}%;background:${pct>=100?'#16A34A':pct>0?'#EAB308':'#EF4444'}"></div></div>
 
+      ${tousNums.length === 0 ? `<div class="mr-vide">Aucun numéro connu pour « ${h(rueActive)} » : ajoute-les avec le bouton ci-dessous (numéro, ou nom de logement).</div>` : ''}
       ${grille(impairs, 'Numéros impairs')}
       ${grille(pairs, 'Numéros pairs')}
       ${grille(autres, 'Autres')}
 
-      <button class="mr-ajouter" onclick="ajouterNumero('${rueActive.replace(/'/g,"\\'")}')">
+      <button class="mr-ajouter" onclick="ajouterNumero(${ja(rueActive)})">
         ➕ Ajouter un numéro ou un nom
       </button>
 

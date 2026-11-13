@@ -274,20 +274,41 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
   return layers;
 }
 export async function afficherSecteurUnique(map, secteur) {
-  let geojson = null;
+  const couleur = secteur.couleur || "#E50410";
 
-  // 1. Polygone précalculé du secteur (Pacy, Ménilles, Saint-Aquilin)
+  // 1. Polygone précalculé du secteur (ancien découpage de Pacy/Ménilles/Saint-Aquilin)
+  let geojson = null;
   if (POLYGONES_SECTEURS[secteur.nom]) {
     geojson = { type: "Feature", geometry: POLYGONES_SECTEURS[secteur.nom], properties: {} };
   }
-  // 2. Sinon, contour communal officiel
+
+  // 2. Sinon, les adresses réelles des rues du secteur : une zone légère autour
+  //    d'elles et un point par adresse. Contrairement au contour communal, cela ne
+  //    surligne pas toute la commune quand elle est découpée en plusieurs secteurs.
+  if (!geojson) {
+    const pts = pointsSecteur(secteur);
+    if (pts.length >= 3) {
+      const groupe = L.featureGroup();
+      const zone = await zoneDepuisAdresses(secteur);
+      if (zone) L.geoJSON(zone, { style: { color: couleur, weight: 2, fillColor: couleur, fillOpacity: 0.12 } }).addTo(groupe);
+      const rendu = L.canvas({ padding: 0.5 });
+      pts.forEach(([lon, lat]) => L.circleMarker([lat, lon], {
+        renderer: rendu, radius: 3.5, color: "#FFFFFF", weight: 1, fillColor: couleur, fillOpacity: 0.95
+      }).addTo(groupe));
+      groupe.addTo(map);
+      const b = groupe.getBounds();
+      if (b.isValid()) map.fitBounds(b, { padding: [25, 25] });
+      return groupe;
+    }
+  }
+
+  // 3. Dernier recours : contour communal officiel (secteur sans adresse connue)
   if (!geojson) {
     const codeInsee = COMMUNES_INSEE[secteur.commune];
     if (!codeInsee) return null;
     geojson = await fetchContourCommune(codeInsee);
   }
   if (!geojson) return null;
-  const couleur=secteur.couleur||"#E50410";
   const layer=L.geoJSON(geojson,{style:{color:couleur,weight:3,fillColor:couleur,fillOpacity:0.3}});
   layer.addTo(map);
   const bounds=layer.getBounds(); if(bounds.isValid()) map.fitBounds(bounds,{padding:[30,30]});
@@ -324,7 +345,7 @@ function dansGeometrie(lon, lat, geom) {
 }
 
 // Cherche parmi une liste de secteurs celui qui contient la position
-// Retourne { secteur, methode } — methode = 'polygone' | 'commune' | null
+// Retourne { secteur, methode } — methode = 'polygone' | 'adresses' | 'commune' | null
 export async function secteurALaPosition(lat, lon, secteurs) {
   // 1. Polygones précalculés (Pacy, Ménilles, Saint-Aquilin) — instantané
   for (const s of secteurs) {
@@ -333,7 +354,21 @@ export async function secteurALaPosition(lat, lon, secteurs) {
       return { secteur: s, methode: 'polygone' };
     }
   }
-  // 2. Contours communaux pour les autres secteurs
+  // 2. Adresses réelles des secteurs : le secteur dont une adresse est la plus proche
+  //    (à moins de 150 m). Seule méthode fiable quand une commune est découpée.
+  const SEUIL_M = 150;
+  let meilleur = null, dMin = Infinity;
+  const coef = Math.cos(lat * Math.PI / 180);
+  for (const s of secteurs) {
+    for (const [pLon, pLat] of pointsSecteur(s)) {
+      const dx = (pLon - lon) * 111320 * coef, dy = (pLat - lat) * 110540;
+      const d = Math.hypot(dx, dy);
+      if (d < dMin) { dMin = d; meilleur = s; }
+    }
+  }
+  if (meilleur && dMin <= SEUIL_M) return { secteur: meilleur, methode: 'adresses' };
+
+  // 3. Contours communaux pour les autres secteurs
   const communes = [...new Set(secteurs.map(s => s.commune))];
   for (const commune of communes) {
     const code = COMMUNES_INSEE[commune];

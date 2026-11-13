@@ -379,6 +379,17 @@ dans `scripts/`, puis `http://localhost:8000/...` : la connexion Google refuse `
   nouveaux secteurs, équipes, PIN et config par les anciens. `historique_saisons` n'est
   toujours pas migré.
 
+## Vue équipier : carte du secteur et rues hors base (13/11)
+
+- `afficherSecteurUnique` (`carte.js`) ne surligne plus le contour de toute la commune pour un
+  secteur sans polygone précalculé : zone légère + un point par adresse du secteur
+  (`pointsSecteur`). Le contour communal n'est plus qu'un dernier recours (aucune adresse connue).
+- `secteurALaPosition` repère d'abord le secteur dont une adresse est à moins de 150 m
+  (méthode `adresses`), avant les contours communaux.
+- `ruesTerrain(secteur)` (`app.js`) ajoute au sélecteur de rues les rues saisies dans le
+  secteur mais absentes de la base d'adresses (« hors base ») ; la grille de numéros s'ouvre
+  même sans numéro connu, avec « Ajouter un numéro ou un nom ».
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)
