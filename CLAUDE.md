@@ -390,6 +390,15 @@ dans `scripts/`, puis `http://localhost:8000/...` : la connexion Google refuse `
   secteur mais absentes de la base d'adresses (« hors base ») ; la grille de numéros s'ouvre
   même sans numéro connu, avec « Ajouter un numéro ou un nom ».
 
+## Carte du tableau de bord : adresses sans secteur (13/11)
+
+Dans les communes découpées en plusieurs secteurs (Pacy, Ménilles, Houlbec-Cocherel,
+Breuilpont), `afficherSecteursSurCarte` dessine en gris toutes les adresses de la base
+qu'aucun secteur ne couvre (`adressesCommune`/`cleBaseCommune` dans `geoloc.js`), sous les
+points colorés des secteurs ; clic = numéro, rue, « Aucun secteur ». La légende affiche leur
+nombre (`couches.nbSansSecteur`). Saint-Aquilin (commune déléguée) est rapproché de Pacy par
+`cleBaseCommune` : ses adresses ne comptent pas comme « sans secteur ».
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)

@@ -222,6 +222,19 @@ export function nbFoyersSecteur(secteur) {
   return n;
 }
 
+// Clé de la base d'adresses d'une commune (résout les communes déléguées) : deux communes
+// de même clé partagent les mêmes adresses.
+export function cleBaseCommune(commune) {
+  return GEO_ADRESSES[commune] ? commune : (COMMUNES_ALIAS[commune] || commune);
+}
+
+// Toutes les adresses de la base pour une commune : [{ lon, lat, numero, rue }]
+export function adressesCommune(commune) {
+  const d = donneesCommune(commune);
+  if (!d) return [];
+  return d.p.map(p => ({ lon: p[3], lat: p[2], numero: p[0], rue: d.r[p[1]] }));
+}
+
 // Points GPS [lon, lat] de toutes les adresses d'un secteur (rues et numéros autorisés)
 export function pointsSecteur(secteur) {
   if (!secteur || !secteur.commune || !secteur.rues || secteur.rues.length === 0) return [];

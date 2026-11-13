@@ -715,6 +715,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.10", date: "2026-11-13", texte: "Carte du tableau de bord : dans les communes découpées en plusieurs secteurs (Pacy, Ménilles…), toutes les adresses de la base sont maintenant affichées. Celles qu'aucun secteur ne couvre apparaissent en gris, avec leur numéro et leur rue au clic, pour repérer ce qui n'est affecté à personne." },
   { version: "1.9", date: "2026-11-13", texte: "Côté équipier : la mini-carte n'affiche plus toute la commune mais seulement les adresses du secteur ; « Dans quel secteur suis-je ? » repère le bon secteur même quand la commune en compte plusieurs ; les rues absentes de la base d'adresses (HLM, résidences, lieux-dits) sont maintenant proposées dans la saisie rapide pour y ajouter des numéros." },
   { version: "1.8", date: "2026-11-12", texte: "Chaque secteur affiche son nombre réel de boîtes aux lettres (adresses de la base + numéros ajoutés − adresses fusionnées − inhabitées), avec le total sur la liste des secteurs et un avertissement pour les rues non comptées. Le même calcul sert maintenant aux statistiques, au bilan et au terrain." },
   { version: "1.7", date: "2026-10-02", texte: "Le terrain affiche désormais le numéro de passage à un foyer (1er passage, 2ème passage…) : liste des passages, foyers à relancer et fenêtres de relance/correction." },
@@ -903,7 +904,7 @@ async function renderDashboard() {
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(dashboardMap);
       dashboardMap._hasTileLayer = true;
     }
-    await afficherSecteursSurCarte(dashboardMap, secteurs, equipes);
+    const couches = await afficherSecteursSurCarte(dashboardMap, secteurs, equipes);
 
     // Légende dynamique : une couleur par équipe
     const legend = document.getElementById("map-legend");
@@ -914,7 +915,8 @@ async function renderDashboard() {
         || (s.equipeId ? PALETTE_EQUIPES[idsEquipes.indexOf(s.equipeId) % PALETTE_EQUIPES.length] : "#9CA3AF");
       legend.innerHTML = [...secteurs]
         .sort((x, y) => x.nom.localeCompare(y.nom, "fr", { numeric: true }))
-        .map(s => `<span><i style="background:${couleurSecteur(s)}"></i> ${h(s.nom)}</span>`).join('');
+        .map(s => `<span><i style="background:${couleurSecteur(s)}"></i> ${h(s.nom)}</span>`).join('')
+        + (couches?.nbSansSecteur ? `<span><i style="background:#9CA3AF"></i> Adresses sans secteur (${couches.nbSansSecteur})</span>` : '');
     }
   }
 

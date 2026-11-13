@@ -1,4 +1,4 @@
-import { pointsSecteur } from "./geoloc.js";
+import { pointsSecteur, adressesCommune, cleBaseCommune } from "./geoloc.js";
 // Échappement HTML des données de secteur affichées dans les popups Leaflet.
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
 // ── Polygones précalculés des secteurs découpés ──
@@ -216,6 +216,29 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
       zonesAdresses.set(s.id, { type: "Feature", geometry: zone.geometry, properties: {} });
     }
   }
+
+  // Communes découpées : toutes les adresses de la base qu'aucun secteur ne couvre sont
+  // dessinées en gris (sous les points colorés), pour repérer d'un coup d'œil ce qui
+  // n'est affecté à personne.
+  let nbSansSecteur = 0;
+  {
+    const couvertes = new Set();
+    for (const s of secteurs) for (const [lon, lat] of pointsSecteur(s)) couvertes.add(`${cleBaseCommune(s.commune)}|${lon},${lat}`);
+    const vues = new Set();
+    for (const commune of Object.keys(nbParCommune).filter(c => nbParCommune[c] > 1)) {
+      const base = cleBaseCommune(commune);
+      if (vues.has(base)) continue;
+      vues.add(base);
+      const marqueurs = [];
+      for (const a of adressesCommune(commune)) {
+        if (couvertes.has(`${base}|${a.lon},${a.lat}`)) continue;
+        marqueurs.push(L.circleMarker([a.lat, a.lon], { renderer: rendu, radius: 3, color: "#FFFFFF", weight: 0.8, fillColor: "#9CA3AF", fillOpacity: 0.85 })
+          .bindPopup(`<strong>${esc(a.numero)} ${esc(a.rue)}</strong><br><span style="color:#666">Aucun secteur</span>`));
+      }
+      if (marqueurs.length) { const g = L.layerGroup(marqueurs); g.addTo(map); layers.push(g); nbSansSecteur += marqueurs.length; }
+    }
+  }
+  layers.nbSansSecteur = nbSansSecteur;
 
   for (const secteur of secteurs) {
     const codeInsee=COMMUNES_INSEE[secteur.commune]; if(!codeInsee) continue;
