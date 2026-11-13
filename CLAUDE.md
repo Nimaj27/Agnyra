@@ -359,6 +359,64 @@ même équipe de tournée, ce que « Affecter par nom » ne sait pas faire. Les 
 « en cours » ou « terminés » ne sont pas réaffectés. Colonnes : nom, commune,
 description, rues, couleur, objectif, equipe.
 
+## Migration des passages calendrier-pacy → Agnyra (13/11)
+
+`scripts/migration-passages-vers-agnyra.html` (à servir en local, ex. `python3 -m http.server`
+dans `scripts/`, puis `http://localhost:8000/...` : la connexion Google refuse `file://`).
+- **Ne migre que les passages.** Lecture seule sur `calendrier-pacy` ; côté Agnyra, écrit
+  uniquement dans `passages` (ID préservés, `merge`) puis recalcule les totaux des secteurs
+  concernés (même règle que `recalculerTotauxSecteur`). Ne touche ni secteurs, ni équipes,
+  ni PIN, ni config.
+- **Rattachement par adresse** : un passage va au secteur Agnyra (de la même commune que son
+  ancien secteur) dont les `rues` contiennent son adresse (numéros restreints `[...]` pris en
+  compte : Isambard, Curie). Sinon, même ID de secteur si celui-ci existe encore ; sinon
+  « non reconnu » (choix manuel dans l'interface). L'équipe du passage devient l'équipe
+  actuellement affectée au secteur ; l'origine est gardée (`secteurIdOrigine`, `equipeIdOrigine`,
+  `equipeNomOrigine`, `migreDepuis`, `dateMigration`).
+- Étape d'analyse sans écriture, vérification après copie (nombre et montant des dons).
+- À lancer **au moment de la bascule**, quand plus personne ne saisit sur l'ancienne app.
+- L'ancien `migration-pacy-vers-belenos.html` a été supprimé : le relancer écraserait les
+  nouveaux secteurs, équipes, PIN et config par les anciens. `historique_saisons` n'est
+  toujours pas migré.
+
+## Vue équipier : carte du secteur et rues hors base (13/11)
+
+- `afficherSecteurUnique` (`carte.js`) ne surligne plus le contour de toute la commune pour un
+  secteur sans polygone précalculé : zone légère + un point par adresse du secteur
+  (`pointsSecteur`). Le contour communal n'est plus qu'un dernier recours (aucune adresse connue).
+- `secteurALaPosition` repère d'abord le secteur dont une adresse est à moins de 150 m
+  (méthode `adresses`), avant les contours communaux.
+- `ruesTerrain(secteur)` (`app.js`) ajoute au sélecteur de rues les rues saisies dans le
+  secteur mais absentes de la base d'adresses (« hors base ») ; la grille de numéros s'ouvre
+  même sans numéro connu, avec « Ajouter un numéro ou un nom ».
+
+## Carte du tableau de bord : adresses sans secteur (13/11)
+
+Dans les communes découpées en plusieurs secteurs (Pacy, Ménilles, Houlbec-Cocherel,
+Breuilpont), `afficherSecteursSurCarte` dessine en gris toutes les adresses de la base
+qu'aucun secteur ne couvre (`adressesCommune`/`cleBaseCommune` dans `geoloc.js`), sous les
+points colorés des secteurs ; clic = numéro, rue, « Aucun secteur ». La légende affiche leur
+nombre (`couches.nbSansSecteur`). Saint-Aquilin (commune déléguée) est rapproché de Pacy par
+`cleBaseCommune` : ses adresses ne comptent pas comme « sans secteur ».
+
+## Contours communaux : panne de geo.api.gouv.fr (13/11)
+
+`geo.api.gouv.fr` (contours des communes, `fetchContourCommune` dans `carte.js`) a répondu 504
+sans en-tête CORS : la carte ne dessinait que les communes découpées. Désormais : contour gardé
+dans `localStorage` (`agnyra_contour_<code INSEE>`), délai de 6 s et une seule nouvelle tentative,
+échec mémorisé pour la session, contours demandés en parallèle avant la boucle des secteurs, et —
+si le contour reste indisponible — repli sur la zone et les points des adresses du secteur
+(`viaAdresses`). Le service lui-même est hors de notre contrôle.
+
+## Couleurs par tournée, Saint-Aquilin rendu comme Pacy (13/11)
+
+- Les secteurs d'une même tournée (même équipe) partagent la même `couleur` (à poser dans le CSV
+  d'import) ; la légende du tableau de bord les regroupe en une seule entrée (nom de l'équipe).
+- `afficherSecteursSurCarte` compte les secteurs **par base d'adresses** (`cleBaseCommune`) :
+  Saint-Aquilin-de-Pacy est donc traité comme une commune découpée avec Pacy (zone et points
+  d'adresses, zones sans chevauchement). Son ancien polygone précalculé a été retiré de
+  `POLYGONES_SECTEURS`.
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)
