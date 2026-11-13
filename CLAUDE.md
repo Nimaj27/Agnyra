@@ -408,6 +408,15 @@ dans `localStorage` (`agnyra_contour_<code INSEE>`), délai de 6 s et une seule 
 si le contour reste indisponible — repli sur la zone et les points des adresses du secteur
 (`viaAdresses`). Le service lui-même est hors de notre contrôle.
 
+## Couleurs par tournée, Saint-Aquilin rendu comme Pacy (13/11)
+
+- Les secteurs d'une même tournée (même équipe) partagent la même `couleur` (à poser dans le CSV
+  d'import) ; la légende du tableau de bord les regroupe en une seule entrée (nom de l'équipe).
+- `afficherSecteursSurCarte` compte les secteurs **par base d'adresses** (`cleBaseCommune`) :
+  Saint-Aquilin-de-Pacy est donc traité comme une commune découpée avec Pacy (zone et points
+  d'adresses, zones sans chevauchement). Son ancien polygone précalculé a été retiré de
+  `POLYGONES_SECTEURS`.
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)

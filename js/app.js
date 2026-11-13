@@ -913,9 +913,16 @@ async function renderDashboard() {
       const idsEquipes = equipes.map(e => e.id).sort();
       const couleurSecteur = s => s.couleur
         || (s.equipeId ? PALETTE_EQUIPES[idsEquipes.indexOf(s.equipeId) % PALETTE_EQUIPES.length] : "#9CA3AF");
-      legend.innerHTML = [...secteurs]
-        .sort((x, y) => x.nom.localeCompare(y.nom, "fr", { numeric: true }))
-        .map(s => `<span><i style="background:${couleurSecteur(s)}"></i> ${h(s.nom)}</span>`).join('')
+      // Les secteurs d'une même tournée (même équipe, même couleur) forment une seule entrée.
+      const groupes = new Map();
+      for (const s of [...secteurs].sort((x, y) => x.nom.localeCompare(y.nom, "fr", { numeric: true }))) {
+        const couleur = couleurSecteur(s);
+        const cle = `${couleur}|${s.equipeId || s.nom}`;
+        if (!groupes.has(cle)) groupes.set(cle, { couleur, secteurs: [] });
+        groupes.get(cle).secteurs.push(s);
+      }
+      legend.innerHTML = [...groupes.values()]
+        .map(g => `<span><i style="background:${g.couleur}"></i> ${h(g.secteurs.length > 1 ? (g.secteurs[0].equipNom || g.secteurs.map(s => s.nom).join(' / ')) : g.secteurs[0].nom)}</span>`).join('')
         + (couches?.nbSansSecteur ? `<span><i style="background:#9CA3AF"></i> Adresses sans secteur (${couches.nbSansSecteur})</span>` : '');
     }
   }
