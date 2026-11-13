@@ -31,8 +31,88 @@ const GEO_ADRESSES = {"Aigleville":{"r":["Chemin des Cotes","Chemin des Vignes",
 // ne compte que les rues qu'il liste explicitement.
 const COMMUNES_ALIAS = { "Saint-Aquilin-de-Pacy": "Pacy-sur-Eure" };
 const estCommuneAlias = (commune) => !GEO_ADRESSES[commune] && !!COMMUNES_ALIAS[commune];
-function donneesCommune(commune) {
+function donneesBrutes(commune) {
   return GEO_ADRESSES[commune] || GEO_ADRESSES[COMMUNES_ALIAS[commune]] || null;
+}
+
+// ── Rues « jumelles » ────────────────────────────────────────────
+// La base d'adresses nationale range parfois les mêmes maisons sous deux noms de rue
+// (« Clos des Lilas » et « Residence le Clos des Lilas », « Clos des Vallons » et « Rue Clos
+// des Vallons »…). Sans traitement, il faudrait lister les deux noms dans un secteur et chaque
+// maison compterait deux fois. Deux rues sont jumelles quand leurs noms ne diffèrent que par
+// un mot de liaison, un préfixe « Rue/Résidence/Le… » ou une faute d'une lettre, ET que leurs
+// numéros se superposent (≥ 60 % des numéros de la plus petite, à moins de 60 m).
+// Le nom de l'une ou de l'autre désigne alors la même rue, et chaque numéro n'est compté
+// qu'une fois.
+const MOTS_VIDES_RUE = new Set(["rue", "residence", "res", "le", "la", "les", "l", "de", "du", "des", "d", "aux", "au", "et"]);
+function coeurRue(nom) {
+  return String(nom || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(m => m && !MOTS_VIDES_RUE.has(m)).join(" ");
+}
+function ecartUneLettre(a, b) {   // distance d'édition ≤ 1
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (a.length === b.length) return a.slice(i + 1) === b.slice(i + 1);
+  return a.length > b.length ? a.slice(i + 1) === b.slice(i) : b.slice(i + 1) === a.slice(i);
+}
+const _donneesDedoublonnees = new WeakMap();
+function dedoublonner(brut) {
+  if (_donneesDedoublonnees.has(brut)) return _donneesDedoublonnees.get(brut);
+  const { r, p } = brut;
+  const groupe = r.map((_, i) => i);                       // union-find : index de rue → représentant
+  const racine = i => { while (groupe[i] !== i) { groupe[i] = groupe[groupe[i]]; i = groupe[i]; } return i; };
+  const taille = {}; p.forEach(pt => { taille[pt[1]] = (taille[pt[1]] || 0) + 1; });
+  const parNumero = {};
+  p.forEach((pt, k) => { const n = normRueG(pt[0]); (parNumero[n] = parNumero[n] || []).push(k); });
+  const jumeaux = {};                                      // "a|b" → nb de numéros communs proches
+  for (const ks of Object.values(parNumero)) {
+    for (let x = 0; x < ks.length; x++) for (let y = x + 1; y < ks.length; y++) {
+      const a = p[ks[x]], b = p[ks[y]];
+      if (a[1] === b[1]) continue;
+      if (distanceM(a[2], a[3], b[2], b[3]) > 60) continue;
+      const cle = Math.min(a[1], b[1]) + "|" + Math.max(a[1], b[1]);
+      jumeaux[cle] = (jumeaux[cle] || 0) + 1;
+    }
+  }
+  const coeurs = r.map(coeurRue);
+  for (const [cle, n] of Object.entries(jumeaux)) {
+    const [a, b] = cle.split("|").map(Number);
+    if (n < 2 || n / Math.min(taille[a], taille[b]) < 0.6) continue;
+    if (coeurs[a].length < 4 || !ecartUneLettre(coeurs[a], coeurs[b])) continue;
+    groupe[racine(a)] = racine(b);
+  }
+  // Rue de référence d'un groupe : la plus fournie (à égalité, le nom le plus court)
+  const membres = {}; r.forEach((_, i) => { (membres[racine(i)] = membres[racine(i)] || []).push(i); });
+  const reference = {};
+  for (const liste of Object.values(membres)) {
+    if (liste.length < 2) continue;
+    liste.sort((a, b) => (taille[b] || 0) - (taille[a] || 0) || r[a].length - r[b].length || a - b);
+    liste.forEach(i => { reference[i] = liste[0]; });
+  }
+  // Un numéro déjà présent dans la rue de référence n'est pas recompté sous un autre nom du groupe
+  const numerosRef = {};
+  p.forEach(pt => { if (reference[pt[1]] === pt[1]) (numerosRef[pt[1]] = numerosRef[pt[1]] || new Set()).add(normRueG(pt[0])); });
+  const points = p.filter(pt => {
+    const ref = reference[pt[1]];
+    return ref === undefined || ref === pt[1] || !(numerosRef[ref] && numerosRef[ref].has(normRueG(pt[0])));
+  });
+  const groupes = r.map((_, i) => racine(i));
+  const resultat = { r, p: points, groupe: groupes };
+  _donneesDedoublonnees.set(brut, resultat);
+  return resultat;
+}
+function donneesCommune(commune) {
+  const brut = donneesBrutes(commune);
+  return brut ? dedoublonner(brut) : null;
+}
+// Index des rues qui portent ce nom (normalisé) ou celui d'une rue jumelle
+function indicesRue(data, cible) {
+  const groupes = new Set();
+  data.r.forEach((nom, i) => { if (normRueG(nom) === cible) groupes.add(data.groupe[i]); });
+  const indices = [];
+  data.r.forEach((_, i) => { if (groupes.has(data.groupe[i])) indices.push(i); });
+  return indices;
 }
 
 // Distance en mètres entre deux points GPS (formule haversine)
@@ -81,7 +161,7 @@ export function adressesProches(lat, lon, { commune = null, limite = 3, rayonMax
   const resultats = [];
   const communes = commune && donneesCommune(commune)
     ? { [commune]: donneesCommune(commune) }
-    : GEO_ADRESSES;
+    : Object.fromEntries(Object.keys(GEO_ADRESSES).map(c => [c, donneesCommune(c)]));
 
   for (const [nomCommune, data] of Object.entries(communes)) {
     const rues = data.r;
@@ -119,7 +199,7 @@ export function chercherAdresses(saisie, { commune = null, limite = 8 } = {}) {
   const resultats = [];
   const communes = commune && donneesCommune(commune)
     ? { [commune]: donneesCommune(commune) }
-    : GEO_ADRESSES;
+    : Object.fromEntries(Object.keys(GEO_ADRESSES).map(c => [c, donneesCommune(c)]));
 
   for (const [nomCommune, data] of Object.entries(communes)) {
     const rues = data.r;
@@ -164,10 +244,9 @@ export function nbFoyers(commune, rue = null) {
 export function numerosDeRue(commune, rue, restriction = null) {
   const data = donneesCommune(commune);
   if (!data) return [];
-  const cible = normRueG(rue);
-  const idx = data.r.findIndex(r => normRueG(r) === cible);
-  if (idx === -1) return [];
-  let nums = data.p.filter(p => p[1] === idx).map(p => p[0]);
+  const idx = new Set(indicesRue(data, normRueG(rue)));
+  if (idx.size === 0) return [];
+  let nums = data.p.filter(p => idx.has(p[1])).map(p => p[0]);
   if (Array.isArray(restriction)) {
     const ok = new Set(restriction.map(normRueG));
     nums = nums.filter(n => ok.has(normRueG(n)));
@@ -179,10 +258,9 @@ export function numerosDeRue(commune, rue, restriction = null) {
 export function coordsRue(commune, rue, restriction = null) {
   const data = donneesCommune(commune);
   if (!data) return [];
-  const cible = normRueG(rue);
-  const idx = data.r.findIndex(r => normRueG(r) === cible);
-  if (idx === -1) return [];
-  let pts = data.p.filter(p => p[1] === idx);
+  const idx = new Set(indicesRue(data, normRueG(rue)));
+  if (idx.size === 0) return [];
+  let pts = data.p.filter(p => idx.has(p[1]));
   if (Array.isArray(restriction)) {
     const ok = new Set(restriction.map(normRueG));
     pts = pts.filter(p => ok.has(normRueG(p[0])));
@@ -203,14 +281,12 @@ export function nbFoyersSecteur(secteur) {
   const filtre = {};
   for (const entry of secteur.rues) {
     const { rue, numeros } = parseRueEntry(entry);
-    const cible = normRueG(rue);
-    data.r.forEach((r, i) => {
-      if (normRueG(r) !== cible) return;
+    for (const i of indicesRue(data, normRueG(rue))) {
       if (numeros === null) { filtre[i] = null; }
       else if (filtre[i] !== null) {
         filtre[i] = [...(filtre[i] || []), ...numeros.map(normRueG)];
       }
-    });
+    }
   }
 
   let n = 0;
@@ -244,12 +320,10 @@ export function pointsSecteur(secteur) {
   const filtre = {};
   for (const entry of secteur.rues) {
     const { rue, numeros } = parseRueEntry(entry);
-    const cible = normRueG(rue);
-    data.r.forEach((r, i) => {
-      if (normRueG(r) !== cible) return;
+    for (const i of indicesRue(data, normRueG(rue))) {
       if (numeros === null) { filtre[i] = null; }
       else if (filtre[i] !== null) { filtre[i] = [...(filtre[i] || []), ...numeros.map(normRueG)]; }
-    });
+    }
   }
 
   const points = [];
@@ -273,12 +347,10 @@ export function ruesDuSecteur(secteur) {
   if (secteur.rues && secteur.rues.length > 0) {
     for (const entry of secteur.rues) {
       const { rue, numeros } = parseRueEntry(entry);
-      const cible = normRueG(rue);
-      data.r.forEach((r, i) => {
-        if (normRueG(r) !== cible) return;
+      for (const i of indicesRue(data, normRueG(rue))) {
         if (numeros === null) filtre[i] = null;
         else if (filtre[i] !== null) filtre[i] = [...(filtre[i] || []), ...numeros.map(normRueG)];
-      });
+      }
     }
   } else {
     data.r.forEach((_, i) => { filtre[i] = null; });
