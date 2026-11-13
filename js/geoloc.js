@@ -335,6 +335,63 @@ export function pointsSecteur(secteur) {
   return points;
 }
 
+// ── Diagnostic des rues saisies dans un secteur (formulaire « Modifier le secteur ») ──
+// Pour chaque ligne : reconnue (avec son nombre d'adresses), inconnue (avec les rues les plus proches
+// de la commune), ou doublon d'une ligne précédente (même rue, éventuellement sous un autre nom).
+function motsProches(a, b) {
+  return a === b || (a.length >= 4 && b.length >= 4 && ecartUneLettre(a, b));
+}
+function scoreRue(motsSaisis, motsCandidat, normSaisi, normCandidat) {
+  if (!motsSaisis.length || !motsCandidat.length) return 0;
+  let communs = 0;
+  for (const m of motsSaisis) if (motsCandidat.some(c => motsProches(m, c))) communs++;
+  if (!communs) return 0;
+  let score = communs / Math.sqrt(motsSaisis.length * motsCandidat.length);
+  if (normSaisi && normCandidat && (normCandidat.includes(normSaisi) || normSaisi.includes(normCandidat))) score += 0.25;
+  return score;
+}
+export function analyserRuesSecteur(commune, lignes) {
+  const data = commune ? donneesCommune(commune) : null;
+  if (!data) return { communeConnue: false, lignes: lignes.map(ligne => ({ ligne, statut: ligne.trim() ? "sans_base" : "vide" })), nbAdresses: 0 };
+  // Rues proposables : celles qui ont au moins une adresse dans la base dédoublonnée
+  const nbParRue = {}; data.p.forEach(pt => { nbParRue[pt[1]] = (nbParRue[pt[1]] || 0) + 1; });
+  const candidates = Object.keys(nbParRue).map(Number).map(i => ({
+    i, rue: data.r[i], nb: nbParRue[i], groupe: data.groupe[i],
+    mots: coeurRue(data.r[i]).split(" ").filter(Boolean), norm: normRueG(data.r[i])
+  }));
+  const groupesVus = new Map();      // groupe de rue → première ligne qui l'a couvert (sans restriction de numéros)
+  const analyses = lignes.map((ligne, k) => {
+    if (!ligne.trim()) return { ligne, statut: "vide" };
+    const { rue, numeros } = parseRueEntry(ligne);
+    const suffixe = (ligne.match(/\s*\[[^\]]*\]\s*$/) || [""])[0].trim();
+    const idxs = indicesRue(data, normRueG(rue));
+    if (idxs.length) {
+      const groupe = data.groupe[idxs[0]];
+      const nb = pointsSecteur({ commune, rues: [ligne.trim()] }).length;
+      const deja = groupesVus.get(groupe);
+      if (numeros === null && deja !== undefined) return { ligne, rue, suffixe, statut: "doublon", nb, memeQue: deja.ligne, indexMemeQue: deja.k };
+      if (numeros === null) groupesVus.set(groupe, { ligne, k });
+      return { ligne, rue, suffixe, statut: "ok", nb };
+    }
+    return { ligne, rue, suffixe, statut: "inconnue", nb: 0 };
+  });
+  // Suggestions pour les lignes inconnues (hors rues déjà couvertes par une autre ligne)
+  const couverts = new Set(analyses.filter(a => a.statut === "ok" || a.statut === "doublon").map(a => data.groupe[indicesRue(data, normRueG(a.rue))[0]]));
+  for (const a of analyses) {
+    if (a.statut !== "inconnue") continue;
+    const mots = coeurRue(a.rue).split(" ").filter(Boolean), norm = normRueG(a.rue);
+    a.suggestions = candidates
+      .filter(c => !couverts.has(c.groupe))
+      .map(c => ({ rue: c.rue, nb: c.nb, score: scoreRue(mots, c.mots, norm, c.norm) }))
+      .filter(c => c.score > 0.5)
+      .sort((x, y) => y.score - x.score || y.nb - x.nb)
+      .slice(0, 3)
+      .map(({ rue, nb }) => ({ rue, nb }));
+  }
+  const rues = lignes.map(l => l.trim()).filter(Boolean);
+  return { communeConnue: true, lignes: analyses, nbAdresses: rues.length ? nbFoyersSecteur({ commune, rues }) : 0 };
+}
+
 // Liste les rues d'un secteur avec leur nombre de foyers, triées alphabétiquement
 export function ruesDuSecteur(secteur) {
   if (!secteur || !secteur.commune) return [];

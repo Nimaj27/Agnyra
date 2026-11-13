@@ -1533,3 +1533,17 @@ body {
   color: var(--ardoise-mid); font-size: .9rem;
 }
 .chargement-initial img { opacity: .85; border-radius: 18px; }
+
+/* Formulaire secteur : diagnostic des rues saisies */
+.rues-diag { margin: 6px 0 var(--sp-3); font-size: .82rem; }
+.rd-resume { padding: 6px 10px; border-radius: var(--r-sm); font-weight: 600; }
+.rd-resume--ok { background: var(--vert-light); color: #14532D; }
+.rd-resume--alerte { background: var(--jaune-light); color: #78350F; }
+.rd-resume--info { background: #F3F4F6; color: var(--ardoise-mid); font-weight: 500; }
+.rd-ligne { margin-top: 6px; padding: 8px 10px; border: 1px solid var(--gris-bord); border-radius: var(--r-sm); background: var(--blanc); line-height: 1.4; }
+.rd-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.rd-label { color: var(--ardoise-mid); }
+.rd-btn { border: 1.5px solid var(--gris-bord); background: var(--blanc); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer; }
+.rd-btn:hover { border-color: var(--rouge); }
+.rd-btn--sugg span { font-weight: 400; color: var(--ardoise-mid); }
+.rd-note { margin-top: 4px; color: var(--ardoise-mid); font-size: .76rem; }
