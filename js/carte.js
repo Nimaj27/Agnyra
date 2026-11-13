@@ -160,15 +160,35 @@ async function zoneDepuisAdresses(secteur) {
   } catch(e) { return null; }
 }
 
+// Contour officiel d'une commune. Les contours ne changent pas : on les garde dans le
+// navigateur, et on ne dépend du service public (geo.api.gouv.fr) qu'à la première visite.
+// Un service en panne (504) ne doit ni bloquer la carte, ni être réinterrogé en boucle.
+const _contourEchecs = {};
 async function fetchContourCommune(codeInsee) {
   if (_contourCache[codeInsee]) return _contourCache[codeInsee];
+  if (_contourEchecs[codeInsee]) return null;
+  const cle = "agnyra_contour_" + codeInsee;
   try {
-    const res = await fetch(`https://geo.api.gouv.fr/communes/${codeInsee}?format=geojson&geometry=contour`);
-    if (!res.ok) return null;
-    const geojson = await res.json();
-    _contourCache[codeInsee] = geojson;
-    return geojson;
-  } catch(e) { return null; }
+    const stocke = localStorage.getItem(cle);
+    if (stocke) { const gj = JSON.parse(stocke); _contourCache[codeInsee] = gj; return gj; }
+  } catch(e) { /* stockage indisponible : on interroge le service */ }
+  for (let essai = 0; essai < 2; essai++) {
+    const ctrl = new AbortController();
+    const minuteur = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const res = await fetch(`https://geo.api.gouv.fr/communes/${codeInsee}?format=geojson&geometry=contour`, { signal: ctrl.signal });
+      if (res.ok) {
+        const geojson = await res.json();
+        _contourCache[codeInsee] = geojson;
+        try { localStorage.setItem(cle, JSON.stringify(geojson)); } catch(e) { /* quota : sans importance */ }
+        return geojson;
+      }
+    } catch(e) { /* panne ou délai dépassé : on retente une fois */ }
+    finally { clearTimeout(minuteur); }
+    await new Promise(r => setTimeout(r, 400));
+  }
+  _contourEchecs[codeInsee] = true;
+  return null;
 }
 let _leafletLoading=null;
 function chargerLeaflet() {
@@ -240,6 +260,12 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
   }
   layers.nbSansSecteur = nbSansSecteur;
 
+  // Contours communaux nécessaires (communes non découpées), demandés en parallèle :
+  // en séquence, un service lent rallongerait d'autant l'affichage de la carte.
+  await Promise.all([...new Set(secteurs
+    .filter(s => !POLYGONES_SECTEURS[s.nom] && !(nbParCommune[s.commune] > 1) && COMMUNES_INSEE[s.commune])
+    .map(s => COMMUNES_INSEE[s.commune]))].map(code => fetchContourCommune(code)));
+
   for (const secteur of secteurs) {
     const codeInsee=COMMUNES_INSEE[secteur.commune]; if(!codeInsee) continue;
 
@@ -263,7 +289,13 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     //    peindre toute la commune recouvrirait ses voisins.
     if (!geojson && communeDecoupee) continue;
     // 5. Sinon, contour communal officiel
+    let viaAdresses = false;
     if (!geojson) geojson = await fetchContourCommune(codeInsee);
+    // Contour indisponible (service en panne) : on se rabat sur les adresses du secteur
+    if (!geojson && secteur.rues && secteur.rues.length > 0) {
+      const zone = await zoneDepuisAdresses(secteur);
+      if (zone) { geojson = { type: "Feature", geometry: zone.geometry, properties: {} }; viaAdresses = true; }
+    }
     if (!geojson) continue;
     // Priorité à la couleur choisie pour le secteur (Modifier) — repli sur la couleur d'équipe si non définie
     const couleur = secteur.couleur || getCouleurEquipe(secteur.equipeId,equipes);
@@ -271,7 +303,7 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     // que les éventuels chevauchements restent lisibles
     // Secteur dont on connaît les adresses : ce sont elles, colorées par secteur, qui
     // le distinguent de ses voisins ; la zone n'est plus qu'un fond léger.
-    const pointsAdresses = (communeDecoupee && !POLYGONES_SECTEURS[secteur.nom]) ? pointsSecteur(secteur) : [];
+    const pointsAdresses = ((communeDecoupee || viaAdresses) && !POLYGONES_SECTEURS[secteur.nom]) ? pointsSecteur(secteur) : [];
     const style = pointsAdresses.length
       ? { color: couleur, weight: 1.5, opacity: 0.7, fillColor: couleur,
           fillOpacity: secteur.statut==="termine"?0.22:secteur.statut==="en_cours"?0.18:0.1 }

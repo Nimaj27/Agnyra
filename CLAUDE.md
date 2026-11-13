@@ -399,6 +399,15 @@ points colorés des secteurs ; clic = numéro, rue, « Aucun secteur ». La lég
 nombre (`couches.nbSansSecteur`). Saint-Aquilin (commune déléguée) est rapproché de Pacy par
 `cleBaseCommune` : ses adresses ne comptent pas comme « sans secteur ».
 
+## Contours communaux : panne de geo.api.gouv.fr (13/11)
+
+`geo.api.gouv.fr` (contours des communes, `fetchContourCommune` dans `carte.js`) a répondu 504
+sans en-tête CORS : la carte ne dessinait que les communes découpées. Désormais : contour gardé
+dans `localStorage` (`agnyra_contour_<code INSEE>`), délai de 6 s et une seule nouvelle tentative,
+échec mémorisé pour la session, contours demandés en parallèle avant la boucle des secteurs, et —
+si le contour reste indisponible — repli sur la zone et les points des adresses du secteur
+(`viaAdresses`). Le service lui-même est hors de notre contrôle.
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)
