@@ -41,7 +41,7 @@ import {
 import { genererBilanPDF, telechargerBilanPDF } from "./pdf.js";
 import { vocalDisponible, analyserPhrase, ecouterVocal } from "./vocal.js";
 import { tracer, lireJournal, viderJournal, ACTIONS, ACTION_LABEL, ecartCumule } from "./journal.js";
-import { geolocDisponible, positionActuelle, adressesProches, chercherAdresses, nbFoyers, numerosDeRue, coordsRue, nbFoyersSecteur, ruesDuSecteur } from "./geoloc.js";
+import { geolocDisponible, positionActuelle, adressesProches, chercherAdresses, nbFoyers, numerosDeRue, coordsRue, nbFoyersSecteur, ruesDuSecteur, analyserRuesSecteur } from "./geoloc.js";
 import {
   initCarte, afficherSecteursSurCarte, afficherSecteurUnique, secteurALaPosition, PALETTE_EQUIPES
 } from "./carte.js";
@@ -716,6 +716,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.14", date: "2026-11-13", texte: "Formulaire « Modifier le secteur » : sous « Rues / zones », l'appli indique combien de boîtes aux lettres sont couvertes, signale les rues qu'elle ne reconnaît pas dans la base d'adresses (le nom du fond de carte diffère parfois) et propose en un clic la rue la plus proche, avec ses numéros conservés. Elle repère aussi les doublons (même rue écrite de deux façons) et permet de retirer la ligne en trop." },
   { version: "1.13", date: "2026-11-13", texte: "Adresses en double : la base d'adresses rangeait parfois les mêmes maisons sous deux noms de rue (« Clos des Lilas » et « Résidence le Clos des Lilas », « Clos des Vallons » et « Rue Clos des Vallons »…). Ces rues jumelles sont maintenant reconnues : un seul nom suffit dans un secteur, et chaque maison n'est comptée qu'une fois (213 adresses en double retirées, le nombre de boîtes de certains secteurs baisse en conséquence, surtout Houlbec-Cocherel)." },
   { version: "1.12", date: "2026-11-13", texte: "Carte du tableau de bord : tous les secteurs s'affichent maintenant comme ceux de Pacy et Ménilles, avec leur contour et un point par adresse (au lieu du contour de toute la commune pour les secteurs seuls dans leur commune). Les adresses sans secteur apparaissent en gris dans toutes les communes, et la carte s'ouvre à un zoom où les points restent lisibles." },
   { version: "1.11", date: "2026-11-13", texte: "Ventes hors secteur : un équipier peut désormais enregistrer un calendrier remis à quelqu'un qui n'habite aucun secteur (bouton « 🧭 Vente hors secteur » sur son écran d'accueil : don ou offert, montant, mode de paiement, nom et lieu facultatifs, avec la liste de ses ventes et la suppression). Ces ventes comptent dans la collecte, le classement, le bilan de l'équipe et les exports, mais pas dans les foyers visités ni l'avancement des secteurs ; l'admin les retrouve dans Passages → « Ventes hors secteur »." },
@@ -1575,6 +1576,7 @@ function showSecteurModal(secteur = null) {
       <input id="s-desc" class="input" value="${h(secteur?.description || '')}" placeholder="Informations complémentaires">
       <label class="label">Rues / zones (une par ligne)</label>
       <textarea id="s-rues" class="input textarea" rows="4">${h((secteur?.rues || []).join('\n'))}</textarea>
+      <div id="s-rues-diag" class="rues-diag" aria-live="polite"></div>
       <label class="label">Couleur d'affichage</label>
       <input id="s-couleur" type="color" class="input input--color" value="${secteur?.couleur || '#EF4444'}">
       <label class="label">Objectif minimum de calendriers</label>
@@ -1586,6 +1588,7 @@ function showSecteurModal(secteur = null) {
     </div>
   `;
   modal.classList.remove("hidden");
+  brancherDiagnosticRues();
   document.getElementById("btn-save-secteur")?.addEventListener("click", async () => {
     const nom      = document.getElementById("s-nom").value.trim();
     const commune  = document.getElementById("s-commune").value.trim();
@@ -1602,6 +1605,62 @@ function showSecteurModal(secteur = null) {
       closeModal();
     } catch(e) { toast(e.message, "error"); }
   });
+}
+
+// Sous « Rues / zones » : montre ce que l'appli reconnaît dans la base d'adresses de la commune,
+// propose la rue la plus proche pour une ligne non reconnue, et repère les doublons (même rue sous
+// deux noms). Le nom saisi doit correspondre à celui de la base, qui diffère parfois de celui du fond de carte.
+function brancherDiagnosticRues() {
+  const zone = document.getElementById("s-rues"), commune = document.getElementById("s-commune"),
+        box = document.getElementById("s-rues-diag");
+  if (!zone || !commune || !box) return;
+  let minuteur = null;
+
+  const afficher = () => {
+    const nomCommune = commune.value.trim();
+    const lignes = zone.value.split("\n");
+    if (!nomCommune || !lignes.some(l => l.trim())) { box.innerHTML = ""; return; }
+    const res = analyserRuesSecteur(nomCommune, lignes);
+    if (!res.communeConnue) {
+      box.innerHTML = `<div class="rd-resume rd-resume--info">Commune « ${h(nomCommune)} » absente de la base d'adresses : les rues ne peuvent pas être vérifiées.</div>`;
+      return;
+    }
+    const aVerifier = res.lignes.map((a, i) => ({ ...a, i })).filter(a => a.statut === "inconnue" || a.statut === "doublon");
+    const resume = `<div class="rd-resume ${aVerifier.length ? "rd-resume--alerte" : "rd-resume--ok"}">
+      ${aVerifier.length ? "⚠" : "✓"} ${res.nbAdresses} boîte${res.nbAdresses > 1 ? "s" : ""} aux lettres couverte${res.nbAdresses > 1 ? "s" : ""}
+      ${aVerifier.length ? ` · ${aVerifier.length} ligne${aVerifier.length > 1 ? "s" : ""} à vérifier` : ""}</div>`;
+    const details = aVerifier.map(a => {
+      if (a.statut === "doublon") {
+        return `<div class="rd-ligne">🔁 <strong>${h(a.ligne.trim())}</strong> désigne la même rue que « ${h(a.memeQue.trim())} » : une seule ligne suffit.
+          <div class="rd-actions"><button type="button" class="rd-btn" data-rd="retirer" data-i="${a.i}">Retirer cette ligne</button></div></div>`;
+      }
+      const sugg = (a.suggestions || []).map(sg =>
+        `<button type="button" class="rd-btn rd-btn--sugg" data-rd="remplacer" data-i="${a.i}" data-rue="${h(sg.rue)}">${h(sg.rue)} <span>${sg.nb} adr.</span></button>`).join("");
+      return `<div class="rd-ligne">⚠ <strong>${h(a.ligne.trim())}</strong> : rue non reconnue dans la base d'adresses de ${h(nomCommune)}.
+        ${sugg ? `<div class="rd-actions"><span class="rd-label">Remplacer par :</span>${sugg}</div>` : `<div class="rd-note">Aucune rue proche trouvée.</div>`}
+        <div class="rd-note">Tu peux la garder (rue hors base) : elle reste saisissable sur le terrain, mais sans points sur la carte.</div></div>`;
+    }).join("");
+    box.innerHTML = resume + details;
+  };
+  const differer = () => { clearTimeout(minuteur); minuteur = setTimeout(afficher, 200); };
+
+  zone.addEventListener("input", differer);
+  commune.addEventListener("input", differer);
+  box.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-rd]");
+    if (!btn) return;
+    const lignes = zone.value.split("\n"), i = Number(btn.dataset.i);
+    if (!(i >= 0 && i < lignes.length)) return;
+    if (btn.dataset.rd === "retirer") {
+      lignes.splice(i, 1);
+    } else {
+      const suffixe = (lignes[i].match(/\s*\[[^\]]*\]\s*$/) || [""])[0].trim();   // numéros autorisés conservés
+      lignes[i] = btn.dataset.rue + (suffixe ? " " + suffixe : "");
+    }
+    zone.value = lignes.join("\n");
+    afficher();
+  });
+  afficher();
 }
 
 window.closeModal = () => {

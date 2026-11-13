@@ -519,6 +519,27 @@ lister les deux noms dans un secteur et chaque maison comptait deux fois (boîte
   comme visité (aucun passage réel en base au 13/11). Les objectifs de calendriers déjà posés dans les secteurs ne sont
   pas recalculés.
 
+## Formulaire secteur : diagnostic des rues saisies (13/11)
+
+Les noms de rue saisis dans « Rues / zones » doivent correspondre à ceux de la base d'adresses (comparaison du nom
+entier, insensible à la casse/aux accents/à la ponctuation) ; le fond de carte OpenStreetMap en utilise souvent d'autres
+(« La Maison Coquerel » sur la carte, « Lieu Dit la Maison Coquerel » dans la base ; « Rue du Clos d'Ivry » sur la carte,
+« Rue du Clos » dans la base). Une ligne approchante était acceptée sans erreur mais ne couvrait aucune adresse.
+- `analyserRuesSecteur(commune, lignes)` (`js/geoloc.js`) : pour chaque ligne → `ok` (avec son nombre d'adresses),
+  `inconnue` (avec jusqu'à 3 rues proches de la commune, `suggestions`), `doublon` (même rue qu'une ligne précédente,
+  y compris sous un autre nom via les rues jumelles ; une même rue scindée en lignes à numéros restreints n'est pas un
+  doublon), `vide` ou `sans_base` (commune absente de la base). Total des boîtes via `nbFoyersSecteur`.
+  Rapprochement par mots du « cœur » du nom (`coeurRue`, mots proches à une lettre près, bonus si l'un contient l'autre,
+  score > 0,5) ; les rues déjà couvertes par une autre ligne ne sont pas reproposées.
+- `brancherDiagnosticRues()` (`js/app.js`, appelée par `showSecteurModal`) : encart `#s-rues-diag` sous le champ, mis à
+  jour à la frappe (200 ms) et au changement de commune ; boutons « Remplacer par … » (les numéros `[…]` de la ligne
+  sont conservés) et « Retirer cette ligne ». Une rue hors base reste autorisée (message explicatif) : elle est
+  saisissable sur le terrain mais sans points sur la carte. Toutes les données affichées passent par `h()`.
+- Testé : logique sur la base réelle (cas Maison Coquerel, Clos d'Ivry à La Heunière et à Houlbec, faute de frappe,
+  restriction de numéros, jumelles, commune inconnue, ligne piégée) et formulaire réel dans un navigateur de test.
+  Pas vérifié dans l'application déployée.
+- Non traité : l'import CSV des secteurs n'affiche pas ce diagnostic.
+
 ## Structure du code
 
 Build modulaire → fichier unique. Ne jamais éditer `index-monofichier.html`
