@@ -366,7 +366,9 @@ rien à migrer. L'outil dédié (`scripts/migration-passages-vers-agnyra.html`, 
 adresse) a été supprimé ; il reste dans l'historique git (commit `86d86c7`) si une migration
 devenait un jour utile. L'ancien script de migration complète (`migration-pacy-vers-belenos`)
 a lui aussi disparu : le relancer écraserait les nouveaux secteurs, équipes, PIN et réglages.
-`historique_saisons` n'est toujours pas migré.
+`historique_saisons` n'est toujours pas migré. Le script `import-quotas-tournee-2026-27.html`
+(quotas 2026-27, écrivait secteurs/équipes/PIN) a aussi été supprimé : les quotas, rues et
+rattachements d'équipes passent maintenant par l'import CSV des secteurs.
 
 ## Vue équipier : carte du secteur et rues hors base (13/11)
 
@@ -427,7 +429,8 @@ manifest.json, sw.js
 icons/                    → 15 tailles (icon48 → icon512, maskable192/512, favicon32)
 firestore.rules           → règles de sécurité (à republier manuellement en console)
 functions/                → Cloud Function équipier, écrite mais non déployée
-scripts/                  → scripts one-off (seed, migration), à supprimer une fois utilisés
+scripts/                  → (dossier supprimé : les scripts one-off de migration et d'import de quotas ont été retirés ;
+                            les quotas/rues/équipes s'importent désormais par CSV dans « Secteurs »)
 ```
 
 Après toute modification des modules, relancer `python3 build.py` pour
