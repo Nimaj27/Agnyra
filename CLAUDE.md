@@ -443,7 +443,24 @@ test (conteneur 420 px comme le tableau de bord) : au zoom 11 et au-delà, les p
 - `rayonPoint(zoom)` : points plus petits de loin (1,8 px à z ≤ 9 → 4,5 px à z ≥ 13), mis à jour à chaque
   `zoomend` (`map._pointsAdresses`, un seul écouteur par carte) ; les points gris « sans secteur » sont à 85 %.
 - Cause exacte du zoom trop lointain sur le site réel non établie (non reproduit avec les secteurs seuls ; piste :
-  contours communaux de `geo.api.gouv.fr` qui élargissent l'emprise).
+  contours communaux de `geo.api.gouv.fr` qui élargissent l'emprise — ils ne sont plus demandés pour un secteur
+  normal, voir la section suivante).
+
+## Carte du tableau de bord : tous les secteurs rendus comme Pacy/Ménilles (13/11)
+
+Avant, seuls les secteurs d'une commune découpée en plusieurs secteurs (Pacy, Ménilles…) avaient zone d'adresses
++ points ; un secteur seul dans sa commune (Chaignes, Croisy…) était peint avec le **contour de toute la commune**
+(`geo.api.gouv.fr`), sans point. Désormais `afficherSecteursSurCarte` (`js/carte.js`) applique le même rendu partout :
+- tout secteur avec des rues connues de la base d'adresses : zone concave légère (tampon 30 m, sans chevauchement
+  avec les autres secteurs de la commune) + un point par adresse ;
+- secteur avec 1–2 adresses seulement : points sans zone ; commune absente de `COMMUNES_INSEE` : dessinée quand même ;
+- points gris « sans secteur » pour toutes les communes qui ont un secteur (plus seulement les communes découpées) ;
+- le contour communal ne sert plus qu'en **dernier recours** (secteur sans aucune adresse connue, commune non découpée) :
+  `geo.api.gouv.fr` n'est plus sollicité pour un secteur normal (moins de dépendance au service, et son contour
+  n'élargit plus l'emprise du `fitBounds` — probable cause du zoom d'ouverture trop lointain constaté sur le site).
+- `viaAdresses` (repli quand le contour est indisponible) disparaît : devenu inutile.
+Vérifié dans un navigateur de test avec les 39 secteurs réels et un faux service de contours : 0 appel au service
+(23 avant), 9 991 points colorés (4 915 avant), 855 points gris (400 avant), zoom d'ouverture 11.
 
 ## Points ouverts / non tranchés
 
