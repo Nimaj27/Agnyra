@@ -58,6 +58,7 @@ export async function archiverSaison(annee) {
   const secteurNom = Object.fromEntries(secteurs.map(s => [s.id, s.nom]));
   const adresses = {};
   for (const p of passages) {
+    if (p.horsSecteur) continue;   // vente hors secteur : pas un foyer de la tournée, rien à comparer d'une année sur l'autre
     const a = (p.adresse || '').trim();
     if (!a) continue;
     const clef = normAdresse(a);
@@ -87,6 +88,7 @@ export async function archiverSaison(annee) {
     totalCarte: stats.totalCarte || 0,
     nbDons: stats.nbDons,
     nbPassages: stats.nbPassages,
+    horsSecteur: stats.horsSecteur,
     nbSecteursTotal: stats.nbSecteursTotal,
     nbSecteursTermines: stats.nbSecteursTermines,
     secteurs: secteurs.map(s => ({

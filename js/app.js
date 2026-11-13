@@ -9,6 +9,7 @@ import {
   creerEquipe, mettreAJourEquipe, supprimerEquipe,
   lireEquipes, lireEquipe, ecouterEquipes, lirePins, migrerPins, statsGlobalesTournee,
   ajouterPassage, passagesDuSecteur, passagesDeLEquipe,
+  ventesHorsSecteurEquipe, supprimerVenteHorsSecteur,
   foyersARelancer, marquerRelance, supprimerPassage, modifierPassage, verifierDoublonAdresse,
   ecouterPassagesSecteur,
   lireConfig, sauvegarderConfig,
@@ -715,6 +716,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.11", date: "2026-11-13", texte: "Ventes hors secteur : un équipier peut désormais enregistrer un calendrier remis à quelqu'un qui n'habite aucun secteur (bouton « 🧭 Vente hors secteur » sur son écran d'accueil : don ou offert, montant, mode de paiement, nom et lieu facultatifs, avec la liste de ses ventes et la suppression). Ces ventes comptent dans la collecte, le classement, le bilan de l'équipe et les exports, mais pas dans les foyers visités ni l'avancement des secteurs ; l'admin les retrouve dans Passages → « Ventes hors secteur »." },
   { version: "1.10", date: "2026-11-13", texte: "Carte du tableau de bord : dans les communes découpées en plusieurs secteurs (Pacy, Ménilles…), toutes les adresses de la base sont maintenant affichées. Celles qu'aucun secteur ne couvre apparaissent en gris, avec leur numéro et leur rue au clic, pour repérer ce qui n'est affecté à personne." },
   { version: "1.9", date: "2026-11-13", texte: "Côté équipier : la mini-carte n'affiche plus toute la commune mais seulement les adresses du secteur ; « Dans quel secteur suis-je ? » repère le bon secteur même quand la commune en compte plusieurs ; les rues absentes de la base d'adresses (HLM, résidences, lieux-dits) sont maintenant proposées dans la saisie rapide pour y ajouter des numéros." },
   { version: "1.8", date: "2026-11-12", texte: "Chaque secteur affiche son nombre réel de boîtes aux lettres (adresses de la base + numéros ajoutés − adresses fusionnées − inhabitées), avec le total sur la liste des secteurs et un avertissement pour les rues non comptées. Le même calcul sert maintenant aux statistiques, au bilan et au terrain." },
@@ -1004,7 +1006,7 @@ async function renderDashboard() {
         <div class="stat-card">
           <div class="stat-value">${stats.nbPassages}</div>
           <div class="stat-label">Foyers visités</div>
-          <div class="stat-sub">🔁 ${stats.nbAbsents} absents</div>
+          <div class="stat-sub">🔁 ${stats.nbAbsents} absents${stats.horsSecteur?.nbCalendriers ? ` | 🧭 ${stats.horsSecteur.nbCalendriers} hors secteur (${formatMontant(stats.horsSecteur.montant)})` : ''}</div>
         </div>
       </div>
 
@@ -1910,6 +1912,7 @@ async function renderPassages() {
     <div class="filter-bar">
       <select id="filter-secteur" class="input input--sm">
         <option value="">Tous les secteurs</option>
+        <option value="__hors_secteur">🧭 Ventes hors secteur</option>
         ${secteurs.map(s => `<option value="${s.id}">${h(s.commune)} – ${h(s.nom)}</option>`).join('')}
       </select>
     </div>
@@ -1920,7 +1923,10 @@ async function renderPassages() {
   async function loadPassages() {
     const secteurId = document.getElementById("filter-secteur")?.value;
     let passages;
-    if (secteurId) {
+    if (secteurId === "__hors_secteur") {
+      passages = (await fsGetAllOrg(COLLECTIONS.PASSAGES)).filter(p => p.horsSecteur);
+      passages.sort((a,b) => (b.datePassage || "").localeCompare(a.datePassage || ""));
+    } else if (secteurId) {
       passages = await passagesDuSecteur(secteurId);
     } else {
       passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
@@ -1933,6 +1939,19 @@ async function renderPassages() {
   await loadPassages();
 }
 
+window.supprimerVenteHorsSecteurAdmin = async (passageId) => {
+  if (!confirm("Supprimer cette vente hors secteur ?")) return;
+  try {
+    const passages = await fsGetAllOrg(COLLECTIONS.PASSAGES);
+    const avant = passages.find(p => p.id === passageId && p.horsSecteur) || null;
+    if (!avant) { toast("Vente introuvable", "error"); return; }
+    tracer(ACTIONS.SUPPRESSION, { avant, contexte: "hors secteur (admin)", auteur: auteurCourant() });
+    await supprimerVenteHorsSecteur(passageId);
+    toast("Vente supprimée", "success");
+    document.getElementById("filter-secteur")?.dispatchEvent(new Event("change"));   // recharge avec le filtre courant
+  } catch (e) { toast("Erreur : " + e.message, "error"); }
+};
+
 function renderPassagesList(passages, secteurs) {
   const list = document.getElementById("passages-list");
   if (!list) return;
@@ -1944,18 +1963,19 @@ function renderPassagesList(passages, secteurs) {
   list.innerHTML = `
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>Date</th><th>Équipe</th><th>Secteur</th><th>Adresse</th><th>Statut</th><th>Montant</th><th>Mode</th></tr></thead>
+        <thead><tr><th>Date</th><th>Équipe</th><th>Secteur</th><th>Adresse</th><th>Statut</th><th>Montant</th><th>Mode</th><th></th></tr></thead>
         <tbody>
           ${passages.map(p => {
             const s = secteurMap[p.secteurId] || {};
             return `<tr class="tr--${p.statut}">
               <td>${jourLocal(p.datePassage)}</td>
               <td>${h(p.equipeNom || '—')}</td>
-              <td>${h(s.nom || '—')}</td>
-              <td>${h(p.adresse || '—')}</td>
+              <td>${p.horsSecteur ? '🧭 Hors secteur' : h(s.nom || '—')}</td>
+              <td>${h((p.horsSecteur ? [p.nomDonateur, p.adresse].filter(Boolean).join(' — ') : p.adresse) || '—')}</td>
               <td><span class="badge badge--${p.statut}">${STATUT_PASSAGE_LABEL[p.statut] || p.statut}</span></td>
               <td>${p.statut === 'don' ? formatMontant(p.montant) : '—'}</td>
               <td>${p.modePaiement || '—'}</td>
+              <td>${p.horsSecteur ? `<button class="btn btn--ghost btn--sm" title="Supprimer cette vente hors secteur" onclick="supprimerVenteHorsSecteurAdmin(${ja(p.id)})">🗑️</button>` : ''}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -3267,10 +3287,175 @@ async function renderTerrain() {
   const unsub = ecouterSecteursEquipe(APP.equipeId, (secteurs) => {
     renderTerrainSecteurs(secteurs);
     chargerRelancesEquipe(secteurs);
+    chargerHorsSecteurEquipe();
     bindDetectionSecteur(secteurs);
   });
   APP.unsubs.push(unsub);
 }
+
+// ── Ventes hors secteur ──
+// Calendrier remis à quelqu'un qui n'habite aucun secteur de la tournée.
+// Pas de foyer ni de secteur : compté dans la collecte et le classement,
+// pas dans les « foyers visités » (voir ajouterVenteHorsSecteur, tournee.js).
+const LIBELLE_MODE_PAIEMENT = { especes: "Espèces", cheque: "Chèque", carte: "Carte" };
+
+async function chargerHorsSecteurEquipe() {
+  const box = document.getElementById("terrain-hors-secteur");
+  if (!box) return;
+  let ventes = [];
+  try { ventes = await ventesHorsSecteurEquipe(APP.equipeId); }
+  catch (e) { /* hors connexion : le bouton reste utilisable, sans total */ }
+  const nb = ventes.length;
+  const montant = ventes.filter(v => v.statut === "don").reduce((t, v) => t + Number(v.montant || 0), 0);
+  box.innerHTML = `
+    <div class="terrain-secteur-card" onclick="ouvrirVenteHorsSecteur()">
+      <div class="terrain-secteur-header">
+        <span class="terrain-secteur-dot terrain-hs-dot"></span>
+        <div>
+          <div class="terrain-secteur-nom">🧭 Vente hors secteur</div>
+          <div class="terrain-secteur-commune">Calendrier remis à quelqu'un qui n'habite aucun de tes secteurs</div>
+        </div>
+      </div>
+      ${nb ? `<div class="terrain-secteur-stats">
+        <span>💰 ${formatMontant(montant)}</span>
+        <span>🗓️ ${nb} calendrier${nb > 1 ? 's' : ''}</span>
+      </div>` : ''}
+    </div>`;
+}
+
+window.ouvrirVenteHorsSecteur = async () => {
+  let modal = document.getElementById("modal-hs");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-hs"; modal.className = "modal hidden";
+    document.body.appendChild(modal);
+  }
+  window._hsStatut = null;
+  window._hsMode = "especes";
+  modal.classList.remove("hidden");
+  modal.innerHTML = `
+    <div class="modal-inner mn-modal">
+      <h2>🧭 Vente hors secteur</h2>
+      <p class="hs-aide">Pour un calendrier remis à une personne qui n'habite aucun de tes secteurs (famille, collègue, passant…). Il compte dans votre collecte, mais pas dans les foyers visités.</p>
+      <div class="mn-statuts">
+        <button class="mn-btn mn-btn--don" onclick="hsChoisir('don')">💰 Don</button>
+        <button class="mn-btn mn-btn--offert" onclick="hsChoisir('offert')">🎁 Offert</button>
+      </div>
+      <div id="hs-montant-box" class="hidden">
+        <label class="label">Montant (€)</label>
+        <input id="hs-montant" class="input input--montant" type="number" inputmode="decimal" min="0" step="0.50" placeholder="0.00">
+        <div class="mode-paiement">
+          <button class="mode-btn mode-btn--active" data-hs-mode="especes" onclick="hsMode('especes')">💵 Espèces</button>
+          <button class="mode-btn" data-hs-mode="cheque" onclick="hsMode('cheque')">📝 Chèque</button>
+          <button class="mode-btn" data-hs-mode="carte" onclick="hsMode('carte')">💳 Carte</button>
+        </div>
+      </div>
+      <label class="label">Nom (facultatif)</label>
+      <input id="hs-nom" class="input" type="text" maxlength="80" placeholder="Ex. : M. Martin">
+      <label class="label">Commune ou lieu (facultatif)</label>
+      <input id="hs-lieu" class="input" type="text" maxlength="120" placeholder="Ex. : Évreux, au travail…">
+      <div class="modal-actions">
+        <button id="hs-valider" class="btn btn--primary" disabled onclick="hsEnregistrer()">Enregistrer</button>
+        <button class="btn btn--ghost" onclick="hsFermer()">Fermer</button>
+      </div>
+      <div id="hs-liste"></div>
+    </div>`;
+  await hsRafraichirListe();
+};
+
+window.hsFermer = () => document.getElementById("modal-hs")?.classList.add("hidden");
+
+window.hsChoisir = (statut) => {
+  window._hsStatut = statut;
+  document.querySelectorAll("#modal-hs .mn-btn").forEach(b =>
+    b.classList.toggle("mn-btn--sel", b.classList.contains(`mn-btn--${statut}`)));
+  document.getElementById("hs-montant-box")?.classList.toggle("hidden", statut !== "don");
+  const valider = document.getElementById("hs-valider");
+  if (valider) valider.disabled = false;
+  if (statut === "don") document.getElementById("hs-montant")?.focus();
+};
+
+window.hsMode = (mode) => {
+  window._hsMode = mode;
+  document.querySelectorAll("[data-hs-mode]").forEach(b =>
+    b.classList.toggle("mode-btn--active", b.dataset.hsMode === mode));
+};
+
+window.hsEnregistrer = async () => {
+  const st = window._hsStatut;
+  if (!st) return;
+  const montant = parseFloat(document.getElementById("hs-montant")?.value || "0");
+  if (st === "don" && (!montant || montant <= 0)) { toast("Saisis le montant", "error"); return; }
+  const btn = document.getElementById("hs-valider");
+  setLoading(btn, true);
+  try {
+    await ajouterPassage({
+      horsSecteur: true,
+      equipeId: APP.equipeId, equipeNom: APP.equipeNom,
+      statut: st,
+      montant: st === "don" ? montant : 0,
+      modePaiement: st === "don" ? window._hsMode : null,
+      nomDonateur: (document.getElementById("hs-nom")?.value || "").trim(),
+      adresse: (document.getElementById("hs-lieu")?.value || "").trim(),
+      saisiPar: APP.membre || ""
+    });
+    toast(st === "don" ? `Vente hors secteur enregistrée (${formatMontant(montant)})` : "Calendrier offert enregistré", "success");
+    // Prêt pour la saisie suivante
+    window._hsStatut = null;
+    ["hs-montant", "hs-nom", "hs-lieu"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+    document.getElementById("hs-montant-box")?.classList.add("hidden");
+    document.querySelectorAll("#modal-hs .mn-btn").forEach(b => b.classList.remove("mn-btn--sel"));
+    setLoading(btn, false);
+    if (btn) btn.disabled = true;
+    await hsRafraichirListe();
+    chargerHorsSecteurEquipe();
+  } catch (e) {
+    toast("Erreur : " + e.message, "error");
+    setLoading(btn, false);
+  }
+};
+
+async function hsRafraichirListe() {
+  const box = document.getElementById("hs-liste");
+  if (!box) return;
+  let ventes;
+  try { ventes = await ventesHorsSecteurEquipe(APP.equipeId); }
+  catch (e) { box.innerHTML = `<p class="hs-aide">Liste indisponible pour le moment (hors connexion ?).</p>`; return; }
+  window._hsVentes = ventes;
+  if (ventes.length === 0) { box.innerHTML = ""; return; }
+  box.innerHTML = `
+    <h3 class="hs-titre">Mes ventes hors secteur (${ventes.length})</h3>
+    ${ventes.map(v => {
+      const qui = [v.nomDonateur, v.adresse].filter(Boolean).join(" — ") || "Sans nom";
+      const quand = new Date(v.datePassage).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      const detail = v.statut === "don"
+        ? `${formatMontant(v.montant)} · ${LIBELLE_MODE_PAIEMENT[v.modePaiement] || "—"}`
+        : "Offert";
+      return `<div class="hs-ligne">
+        <div class="hs-ligne-texte"><strong>${h(qui)}</strong><span>${h(quand)} · ${h(detail)}${v.saisiPar ? " · " + h(v.saisiPar) : ""}</span></div>
+        <button class="btn btn--ghost btn--sm" title="Supprimer" onclick="hsSupprimer(${ja(v.id)})">🗑️</button>
+      </div>`;
+    }).join("")}`;
+}
+
+window.hsSupprimer = async (passageId) => {
+  if (!confirm("Supprimer cette vente hors secteur ?")) return;
+  try {
+    const avant = (window._hsVentes || []).find(v => v.id === passageId) || null;
+    tracer(ACTIONS.SUPPRESSION, { avant, contexte: "hors secteur", auteur: auteurCourant() });
+    await supprimerVenteHorsSecteur(passageId);
+    toast("Vente supprimée", "success");
+    await hsRafraichirListe();
+    chargerHorsSecteurEquipe();
+  } catch (e) {
+    // Les règles Firestore réservent la suppression d'un passage à l'admin de la caserne.
+    if (e?.code === "permission-denied" || /permission/i.test(e?.message || "")) {
+      toast("Suppression refusée : demande à l'admin de supprimer cette vente (Passages → Ventes hors secteur).", "error");
+    } else {
+      toast("Erreur : " + e.message, "error");
+    }
+  }
+};
 
 // ── Bloc « Mes foyers à relancer » sur la vue terrain ──
 async function chargerRelancesEquipe(secteurs) {
@@ -3380,7 +3565,8 @@ function renderTerrainSecteurs(secteurs) {
   const content = document.getElementById("terrain-content");
   if (!content) return;
   if (secteurs.length === 0) {
-    content.innerHTML = `<p class="empty-state terrain-empty">Aucun secteur assigné à ton équipe pour le moment.<br>L'Amicale t'en attribuera prochainement.</p>`;
+    content.innerHTML = `<p class="empty-state terrain-empty">Aucun secteur assigné à ton équipe pour le moment.<br>L'Amicale t'en attribuera prochainement.</p>
+      <div id="terrain-hors-secteur" class="terrain-hs"></div>`;
     return;
   }
   const nbTotal = secteurs.length;
@@ -3436,6 +3622,7 @@ function renderTerrainSecteurs(secteurs) {
         </div>
       `).join('')}
     </div>
+    <div id="terrain-hors-secteur" class="terrain-hs"></div>
   `;
 }
 

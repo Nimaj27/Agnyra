@@ -408,9 +408,36 @@ si le contour reste indisponible — repli sur la zone et les points des adresse
   d'adresses, zones sans chevauchement). Son ancien polygone précalculé a été retiré de
   `POLYGONES_SECTEURS`.
 
+## Ventes hors secteur (13/11)
+
+Un équipier peut enregistrer un calendrier remis à quelqu'un qui n'habite aucun secteur
+(famille, collègue, passant). Modèle : un passage ordinaire avec `horsSecteur:true` et
+`secteurId:null` — **pas de secteur factice** (rien à filtrer dans les listes de secteurs,
+l'avancement ni `recalculerTotauxSecteur`). Seuls `don` et `offert` ont un sens.
+- `ajouterVenteHorsSecteur` (`tournee.js`, aussi accessible via `ajouterPassage({horsSecteur:true,…})`) :
+  la caserne vient de l'équipe (`equipes/{id}.organisationId`), comme un passage vient de son secteur.
+  `ventesHorsSecteurEquipe(equipeId)`, `supprimerVenteHorsSecteur(id)` (pas de totaux de secteur à refaire).
+- `statsGlobalesTournee` : ces ventes comptent dans `totalCollecte`, les totaux par mode, `nbDons`/`nbOfferts`/
+  `nbCalendriers` et le montant par équipe (classement, bilan équipier, exports), mais **pas** dans `nbPassages`
+  (« foyers visités », global et par équipe). Détail dans `stats.horsSecteur {nbDons, nbOfferts, nbCalendriers, montant}`,
+  repris dans le PDF du bilan et l'archive de saison (`historique_saisons.horsSecteur`).
+- `archiverSaison` ignore ces passages dans l'historique par adresse (pas un foyer de la tournée).
+- Équipier (`app.js`) : carte « 🧭 Vente hors secteur » sous la liste des secteurs (`chargerHorsSecteurEquipe`,
+  visible même sans secteur), fenêtre `modal-hs` (`ouvrirVenteHorsSecteur`, `hs*`) : don/offert, montant, mode,
+  nom et lieu facultatifs (`nomDonateur`/`adresse`), liste de ses ventes avec suppression.
+- Admin : Passages → filtre « 🧭 Ventes hors secteur », colonne Secteur = « Hors secteur », bouton 🗑️ par ligne ;
+  le tableau de bord affiche leur nombre et montant sous « Foyers visités » ; l'export CSV indique « Hors secteur ».
+- ⚠️ `firestore.rules` réserve `delete` sur `passages` à l'admin : un équipier qui supprime sa vente reçoit un refus
+  (message explicite, l'admin peut la supprimer). Voir « Points ouverts ».
+- Testé avec un Firestore simulé en mémoire (stats, caserne, CSV, suppression) ; pas testé dans un navigateur.
+
 ## Points ouverts / non tranchés
 
-(aucun pour l'instant)
+- **Suppression d'un passage par un équipier** : `supprimerPassage` est appelé côté équipier par le bouton
+  « Supprimer » de la fenêtre d'un numéro et par « Annuler la dernière saisie », ainsi que par les ventes hors
+  secteur. Les règles du dépôt réservent `delete` à l'admin de la caserne → refus « Missing or insufficient
+  permissions » si ces règles sont publiées telles quelles. À trancher : ouvrir `delete` aux sessions équipier
+  (au moins pour les passages, y compris hors secteur) ou remplacer la suppression par une annulation.
 
 ## Structure du code
 

@@ -504,6 +504,14 @@ body {
 .terrain-secteur-commune { font-size: .8rem; color: var(--ardoise-mid); }
 .terrain-secteur-stats { display: flex; gap: var(--sp-4); font-size: .85rem; color: var(--ardoise-mid); margin-bottom: var(--sp-2); }
 .terrain-secteur-rues { font-size: .78rem; color: var(--ardoise-mid); }
+.terrain-hs { padding: 0 var(--sp-4) var(--sp-4); }
+.terrain-hs-dot { background: var(--ardoise-mid); }
+/* Fenêtre « Vente hors secteur » */
+.hs-aide { font-size: .82rem; color: var(--ardoise-mid); margin-bottom: var(--sp-3); line-height: 1.45; }
+.hs-titre { font-size: .9rem; margin: var(--sp-4) 0 var(--sp-2); color: var(--ardoise); }
+.hs-ligne { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0; border-top: 1px solid var(--gris-bord); }
+.hs-ligne-texte { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: .85rem; }
+.hs-ligne-texte span { font-size: .78rem; color: var(--ardoise-mid); }
 
 /* Formulaire passage terrain */
 .passage-form {
