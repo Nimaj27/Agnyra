@@ -489,6 +489,15 @@ corrige pas (crayon → « À relancer »). Rappel du comportement : `absent` = 
 restantes), compté dans `nbFoyersAbsents`, ajouté aux relances ; la relance met à jour le même document
 (`nbPassages` + 1).
 
+## Journal des modifications : écriture réservée à l'admin (décision 13/11)
+
+`journal` reste en lecture/écriture admin seulement (`firestore.rules`). Conséquence connue et acceptée : `tracer()`
+(`js/journal.js`) avale l'erreur de permission quand l'appelant est un équipier (session anonyme), donc **les
+corrections et suppressions faites par les équipiers ne sont pas journalisées** ; seules celles de l'admin le sont.
+Option étudiée puis écartée par l'utilisateur : `allow create: if request.auth != null` (équipiers en écriture seule) —
+ne pas la reproposer sans nouvelle demande. À revoir si des corrections de montants sur le terrain posent problème,
+ou avec la séparation du journal par caserne (il ne porte pas encore d'`organisationId`).
+
 ## Structure du code
 
 Build modulaire → fichier unique. Ne jamais éditer `index-monofichier.html`
