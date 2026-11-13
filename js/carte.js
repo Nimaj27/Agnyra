@@ -206,9 +206,20 @@ export async function initCarte(containerId, options={}) {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap contributors', maxZoom:19 }).addTo(map);
   return map;
 }
+// Taille des points d'adresse selon le zoom : trop gros de loin, ils fusionnent en taches
+// de couleur ; de près, ils doivent rester faciles à toucher.
+const rayonPoint = z => z <= 9 ? 1.8 : z === 10 ? 2.4 : z === 11 ? 3.2 : z === 12 ? 3.8 : 4.5;
+function ajusterRayonPoints(map) {
+  const r = rayonPoint(map.getZoom());
+  (map._pointsAdresses || []).forEach(m => m.setRadius(m._sansSecteur ? r * 0.85 : r));
+}
+// En dessous de ce zoom, les adresses d'une commune ne se distinguent plus à l'écran.
+const ZOOM_MIN_VUE_INITIALE = 11;
+
 export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
-  const layers=[], bounds=[];
+  const layers=[], bounds=[], points=[];
   const rendu = L.canvas({ padding: 0.5 }); // des centaines d'adresses : rendu canvas
+  const rayon0 = rayonPoint(map.getZoom());
 
   // Repérer les communes découpées en plusieurs secteurs : elles seules ont
   // besoin d'un géocodage par rues (sinon les contours se superposeraient).
@@ -254,8 +265,9 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
       const marqueurs = [];
       for (const a of adressesCommune(commune)) {
         if (couvertes.has(`${base}|${a.lon},${a.lat}`)) continue;
-        marqueurs.push(L.circleMarker([a.lat, a.lon], { renderer: rendu, radius: 3, color: "#FFFFFF", weight: 0.8, fillColor: "#9CA3AF", fillOpacity: 0.85 })
-          .bindPopup(`<strong>${esc(a.numero)} ${esc(a.rue)}</strong><br><span style="color:#666">Aucun secteur</span>`));
+        const m = L.circleMarker([a.lat, a.lon], { renderer: rendu, radius: rayon0 * 0.85, color: "#FFFFFF", weight: 0.8, fillColor: "#9CA3AF", fillOpacity: 0.85 })
+          .bindPopup(`<strong>${esc(a.numero)} ${esc(a.rue)}</strong><br><span style="color:#666">Aucun secteur</span>`);
+        m._sansSecteur = true; points.push(m); marqueurs.push(m);
       }
       if (marqueurs.length) { const g = L.layerGroup(marqueurs); g.addTo(map); layers.push(g); nbSansSecteur += marqueurs.length; }
     }
@@ -321,13 +333,27 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     layer.bindPopup(popupHtml);
     layer.addTo(map); layers.push(layer);
     if (pointsAdresses.length) {
-      const points = L.layerGroup(pointsAdresses.map(([lon, lat]) =>
-        L.circleMarker([lat, lon], { renderer: rendu, radius: 3.5, color: "#FFFFFF", weight: 1, fillColor: couleur, fillOpacity: 0.95 }).bindPopup(popupHtml)));
-      points.addTo(map); layers.push(points);
+      const marqueurs = pointsAdresses.map(([lon, lat]) =>
+        L.circleMarker([lat, lon], { renderer: rendu, radius: rayon0, color: "#FFFFFF", weight: 1, fillColor: couleur, fillOpacity: 0.95 }).bindPopup(popupHtml));
+      points.push(...marqueurs);
+      const groupe = L.layerGroup(marqueurs);
+      groupe.addTo(map); layers.push(groupe);
     }
     const b=layer.getBounds(); if(b.isValid()) bounds.push(b);
   }
-  if (bounds.length>0) { let ab=bounds[0]; bounds.forEach(b=>{ab=ab.extend(b);}); map.fitBounds(ab,{padding:[20,20]}); }
+  if (bounds.length>0) {
+    let ab=bounds[0]; bounds.forEach(b=>{ab=ab.extend(b);});
+    map.fitBounds(ab,{padding:[20,20], animate:false});
+    // Emprise trop large (un contour communal ou un secteur éloigné) : la vue d'ensemble serait
+    // si lointaine que les points fusionneraient. On recentre sur les adresses, à un zoom lisible ;
+    // le reste reste accessible en dézoomant.
+    if (map.getZoom() < ZOOM_MIN_VUE_INITIALE && points.length) {
+      map.setView(L.latLngBounds(points.map(m => m.getLatLng())).getCenter(), ZOOM_MIN_VUE_INITIALE, { animate:false });
+    }
+  }
+  map._pointsAdresses = points;
+  if (!map._zoomPointsLie) { map._zoomPointsLie = true; map.on("zoomend", () => ajusterRayonPoints(map)); }
+  ajusterRayonPoints(map);
   return layers;
 }
 export async function afficherSecteurUnique(map, secteur) {
