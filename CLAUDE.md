@@ -489,6 +489,36 @@ corrige pas (crayon → « À relancer »). Rappel du comportement : `absent` = 
 restantes), compté dans `nbFoyersAbsents`, ajouté aux relances ; la relance met à jour le même document
 (`nbPassages` + 1).
 
+## Journal des modifications : écriture réservée à l'admin (décision 13/11)
+
+`journal` reste en lecture/écriture admin seulement (`firestore.rules`). Conséquence connue et acceptée : `tracer()`
+(`js/journal.js`) avale l'erreur de permission quand l'appelant est un équipier (session anonyme), donc **les
+corrections et suppressions faites par les équipiers ne sont pas journalisées** ; seules celles de l'admin le sont.
+Option étudiée puis écartée par l'utilisateur : `allow create: if request.auth != null` (équipiers en écriture seule) —
+ne pas la reproposer sans nouvelle demande. À revoir si des corrections de montants sur le terrain posent problème,
+ou avec la séparation du journal par caserne (il ne porte pas encore d'`organisationId`).
+
+## Rues jumelles : la base d'adresses dédoublonnée (13/11)
+
+La base d'adresses embarquée (`GEO_ADRESSES`, `js/geoloc.js`) range parfois les mêmes maisons sous deux noms de rue
+(« Clos des Lilas » / « Residence le Clos des Lilas », « Clos des Vallons » / « Rue Clos des Vallons »…) : il fallait
+lister les deux noms dans un secteur et chaque maison comptait deux fois (boîtes gonflées, points gris restants).
+`donneesCommune()` renvoie désormais une version **dédoublonnée** (`dedoublonner`, calculée une fois par commune) :
+- deux rues sont **jumelles** si leurs noms ont le même « cœur » (`coeurRue` : sans accents, sans mots vides
+  rue/résidence/le/la/les/de/du/des/d/aux/au/et) à une lettre près, ET si leurs numéros se superposent (≥ 2 numéros
+  communs à moins de 60 m, ≥ 60 % de la plus petite rue) ;
+- le nom de l'une ou de l'autre désigne la même rue (`indicesRue`, utilisé par `nbFoyersSecteur`, `pointsSecteur`,
+  `ruesDuSecteur`, `numerosDeRue`, `coordsRue`) ; un numéro présent dans la rue de référence (la plus fournie, à égalité
+  le nom le plus court) n'est pas recompté sous l'autre nom ; les numéros propres à l'alias sont gardés ;
+- résultat : 22 groupes, **213 adresses en double retirées** sur 10 007 (Houlbec-Cocherel surtout : tous les « Clos »).
+  Sur la v6 des secteurs : total des boîtes 9 199 → 9 025 (Houlbec-Cocherel 592 → 472, Ménilles 1 297 → 285,
+  Ménilles 2 475 → 454), adresses grises 792 → 757.
+- Limites : les paires dont les noms diffèrent trop (« Route de Pacy » / « Rue de Pacy », « Chemin des Nouettes » /
+  « Les Nouettes », « Res du Chp de la Cour » / « Residence du Champ de la Cour ») ne sont pas fusionnées. Le nom affiché
+  dans la grille est celui de la rue de référence ; un passage déjà enregistré sous l'autre nom ne s'afficherait plus
+  comme visité (aucun passage réel en base au 13/11). Les objectifs de calendriers déjà posés dans les secteurs ne sont
+  pas recalculés.
+
 ## Structure du code
 
 Build modulaire → fichier unique. Ne jamais éditer `index-monofichier.html`
