@@ -359,25 +359,14 @@ même équipe de tournée, ce que « Affecter par nom » ne sait pas faire. Les 
 « en cours » ou « terminés » ne sont pas réaffectés. Colonnes : nom, commune,
 description, rues, couleur, objectif, equipe.
 
-## Migration des passages calendrier-pacy → Agnyra (13/11)
+## Migration des passages : non nécessaire (13/11)
 
-`scripts/migration-passages-vers-agnyra.html` (à servir en local, ex. `python3 -m http.server`
-dans `scripts/`, puis `http://localhost:8000/...` : la connexion Google refuse `file://`).
-- **Ne migre que les passages.** Lecture seule sur `calendrier-pacy` ; côté Agnyra, écrit
-  uniquement dans `passages` (ID préservés, `merge`) puis recalcule les totaux des secteurs
-  concernés (même règle que `recalculerTotauxSecteur`). Ne touche ni secteurs, ni équipes,
-  ni PIN, ni config.
-- **Rattachement par adresse** : un passage va au secteur Agnyra (de la même commune que son
-  ancien secteur) dont les `rues` contiennent son adresse (numéros restreints `[...]` pris en
-  compte : Isambard, Curie). Sinon, même ID de secteur si celui-ci existe encore ; sinon
-  « non reconnu » (choix manuel dans l'interface). L'équipe du passage devient l'équipe
-  actuellement affectée au secteur ; l'origine est gardée (`secteurIdOrigine`, `equipeIdOrigine`,
-  `equipeNomOrigine`, `migreDepuis`, `dateMigration`).
-- Étape d'analyse sans écriture, vérification après copie (nombre et montant des dons).
-- À lancer **au moment de la bascule**, quand plus personne ne saisit sur l'ancienne app.
-- L'ancien `migration-pacy-vers-belenos.html` a été supprimé : le relancer écraserait les
-  nouveaux secteurs, équipes, PIN et config par les anciens. `historique_saisons` n'est
-  toujours pas migré.
+Personne n'a saisi de passage sur `calendrier-pacy` pour la campagne 2026-27, donc il n'y a
+rien à migrer. L'outil dédié (`scripts/migration-passages-vers-agnyra.html`, rattachement par
+adresse) a été supprimé ; il reste dans l'historique git (commit `86d86c7`) si une migration
+devenait un jour utile. L'ancien script de migration complète (`migration-pacy-vers-belenos`)
+a lui aussi disparu : le relancer écraserait les nouveaux secteurs, équipes, PIN et réglages.
+`historique_saisons` n'est toujours pas migré.
 
 ## Vue équipier : carte du secteur et rues hors base (13/11)
 
