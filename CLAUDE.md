@@ -359,6 +359,26 @@ même équipe de tournée, ce que « Affecter par nom » ne sait pas faire. Les 
 « en cours » ou « terminés » ne sont pas réaffectés. Colonnes : nom, commune,
 description, rues, couleur, objectif, equipe.
 
+## Migration des passages calendrier-pacy → Agnyra (13/11)
+
+`scripts/migration-passages-vers-agnyra.html` (à servir en local, ex. `python3 -m http.server`
+dans `scripts/`, puis `http://localhost:8000/...` : la connexion Google refuse `file://`).
+- **Ne migre que les passages.** Lecture seule sur `calendrier-pacy` ; côté Agnyra, écrit
+  uniquement dans `passages` (ID préservés, `merge`) puis recalcule les totaux des secteurs
+  concernés (même règle que `recalculerTotauxSecteur`). Ne touche ni secteurs, ni équipes,
+  ni PIN, ni config.
+- **Rattachement par adresse** : un passage va au secteur Agnyra (de la même commune que son
+  ancien secteur) dont les `rues` contiennent son adresse (numéros restreints `[...]` pris en
+  compte : Isambard, Curie). Sinon, même ID de secteur si celui-ci existe encore ; sinon
+  « non reconnu » (choix manuel dans l'interface). L'équipe du passage devient l'équipe
+  actuellement affectée au secteur ; l'origine est gardée (`secteurIdOrigine`, `equipeIdOrigine`,
+  `equipeNomOrigine`, `migreDepuis`, `dateMigration`).
+- Étape d'analyse sans écriture, vérification après copie (nombre et montant des dons).
+- À lancer **au moment de la bascule**, quand plus personne ne saisit sur l'ancienne app.
+- L'ancien `migration-pacy-vers-belenos.html` a été supprimé : le relancer écraserait les
+  nouveaux secteurs, équipes, PIN et config par les anciens. `historique_saisons` n'est
+  toujours pas migré.
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)
