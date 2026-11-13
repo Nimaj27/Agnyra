@@ -87,6 +87,7 @@ export async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = 
     ["Dont carte bancaire", fmtEuro(stats.totalCarte || 0)],
     ["Nombre de dons", String(stats.nbDons)],
     ["Foyers visites", String(stats.nbPassages)],
+    ...(stats.horsSecteur?.nbCalendriers ? [["Ventes hors secteur", `${stats.horsSecteur.nbCalendriers} calendrier(s) - ${fmtEuro(stats.horsSecteur.montant)}`]] : []),
     ["Refus", String(stats.nbRefus)],
     ["Absents / a relancer", `${stats.nbAbsents} / ${stats.nbRelances}`],
     ["Secteurs termines", `${stats.nbSecteursTermines} / ${stats.nbSecteursTotal} (${stats.avancement}%)`]

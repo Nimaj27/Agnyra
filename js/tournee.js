@@ -80,7 +80,8 @@ export function ecouterEquipes(callback) {
   });
 }
 
-export async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, statut, montant=0, modePaiement=null, nomDonateur="", note="", saisiPar="" }) {
+export async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, statut, montant=0, modePaiement=null, nomDonateur="", note="", saisiPar="", horsSecteur=false }) {
+  if (horsSecteur) return ajouterVenteHorsSecteur({ equipeId, equipeNom, adresse, statut, montant, modePaiement, nomDonateur, note, saisiPar });
   if (!secteurId||!equipeId) throw new Error("secteurId et equipeId obligatoires");
   if (!Object.values(STATUT_PASSAGE).includes(statut)) throw new Error("Statut invalide");
   if (statut===STATUT_PASSAGE.DON && montant<=0) throw new Error("Montant requis pour un don");
@@ -99,6 +100,36 @@ export async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, 
   });
   await recalculerTotauxSecteur(secteurId);
   return passage;
+}
+// ── Calendriers vendus hors secteur ──────────────────────────────
+// Vente à une personne qui n'habite aucun secteur de la tournée (famille,
+// collègue, passant…). Pas de foyer ni de secteur : le passage porte
+// `horsSecteur:true` et `secteurId:null`. Il compte dans les totaux
+// (collecte, calendriers, classement) mais pas dans les « foyers visités »
+// ni dans l'avancement des secteurs. Seuls don et offert ont un sens ici.
+export async function ajouterVenteHorsSecteur({ equipeId, equipeNom, adresse="", statut, montant=0, modePaiement=null, nomDonateur="", note="", saisiPar="" }) {
+  if (!equipeId) throw new Error("equipeId obligatoire");
+  if (statut!==STATUT_PASSAGE.DON && statut!==STATUT_PASSAGE.OFFERT) throw new Error("Une vente hors secteur est un don ou un calendrier offert");
+  if (statut===STATUT_PASSAGE.DON && !(Number(montant)>0)) throw new Error("Montant requis pour un don");
+  // La caserne vient de l'équipe elle-même (source de vérité), comme pour un secteur.
+  const equipe = await fsGet(COLLECTIONS.EQUIPES, equipeId);
+  const organisationId = equipe?.organisationId || ORGANISATION_ACTUELLE;
+  return fsAdd(COLLECTIONS.PASSAGES, {
+    organisationId,
+    secteurId:null, horsSecteur:true, equipeId, equipeNom, adresse:adresse||"", statut,
+    montant: statut===STATUT_PASSAGE.DON ? Number(montant) : 0,
+    modePaiement: statut===STATUT_PASSAGE.DON ? modePaiement : null,
+    nomDonateur, note, saisiPar, aRelancer:false, datePassage:new Date().toISOString(),
+    nbPassages: 1
+  });
+}
+export async function ventesHorsSecteurEquipe(equipeId) {
+  const passages = await fsQuery(COLLECTIONS.PASSAGES, where("equipeId","==",equipeId));
+  return passages.filter(p=>p.horsSecteur).sort((a,b)=>(b.datePassage||"").localeCompare(a.datePassage||""));
+}
+// Pas de secteur dont recalculer les totaux : un simple effacement suffit.
+export async function supprimerVenteHorsSecteur(passageId) {
+  await fsDelete(COLLECTIONS.PASSAGES, passageId);
 }
 export async function marquerRelance(passageId, secteurId) {
   await fsUpdate(COLLECTIONS.PASSAGES, passageId, { aRelancer:true, statut:STATUT_PASSAGE.RELANCE });
@@ -161,6 +192,14 @@ export async function statsGlobalesTournee() {
     if (p.statut==="relance") nbRelances++;
   }
   const nbCalendriers = nbDons + nbOfferts;   // calendriers distribués au total
+  // Ventes hors secteur : comptées dans la collecte et les calendriers, pas dans les « passages » (foyers visités)
+  const horsSect = passages.filter(p=>p.horsSecteur);
+  const horsSecteur = {
+    nbDons: horsSect.filter(p=>p.statut==="don").length,
+    nbOfferts: horsSect.filter(p=>p.statut==="offert").length,
+    montant: horsSect.filter(p=>p.statut==="don").reduce((s,p)=>s+Number(p.montant||0),0)
+  };
+  horsSecteur.nbCalendriers = horsSecteur.nbDons + horsSecteur.nbOfferts;
   const totalCollecte = totalEspeces + totalCheques + totalCarte;
   const parEquipe = equipes.map(eq => {
     const eqPassages = passages.filter(p=>p.equipeId===eq.id);
@@ -168,13 +207,13 @@ export async function statsGlobalesTournee() {
     const nbRefusEq = eqPassages.filter(p=>p.statut==="refuse").length;
     const nbOffertsEq = eqPassages.filter(p=>p.statut==="offert").length;
     const nbDonsEq = eqPassages.filter(p=>p.statut==="don").length;
-    return { ...eq, montant, nbPassages:eqPassages.length, nbRefus:nbRefusEq,
+    return { ...eq, montant, nbPassages:eqPassages.filter(p=>!p.horsSecteur).length, nbRefus:nbRefusEq,
              nbOfferts:nbOffertsEq, nbCalendriers:nbDonsEq + nbOffertsEq };
   }).sort((a,b)=>b.montant-a.montant);
   const nbSecteursTermines = secteurs.filter(s=>s.statut==="termine").length;
   const nbSecteursTotal = secteurs.length;
   const avancement = nbSecteursTotal>0 ? Math.round((nbSecteursTermines/nbSecteursTotal)*100) : 0;
-  return { totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe };
+  return { totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe };
 }
 
 export async function lireConfig() { return fsGet(COLLECTIONS.CONFIG, "tournee"); }
@@ -220,13 +259,13 @@ export async function exporterBilanCSV() {
   for (const e of equipes) {
     const eqP = passages.filter(p=>p.equipeId===e.id);
     const montant = eqP.filter(p=>p.statut==="don").reduce((s,p)=>s+Number(p.montant||0),0);
-    csv += ligne(e.nom, (e.membres||[]).join(', '), montant.toFixed(2), eqP.length);
+    csv += ligne(e.nom, (e.membres||[]).join(', '), montant.toFixed(2), eqP.filter(p=>!p.horsSecteur).length);
   }
   csv += "\n\nDÉTAIL DES PASSAGES\n" + ligne("Date","Équipe","Secteur","Commune","Adresse","Statut","Mode paiement","Montant (€)","Nom donateur","Note");
   const sorted = [...passages].sort((a,b)=>(a.datePassage||"").localeCompare(b.datePassage||""));
   for (const p of sorted) {
     const s = secteurMap[p.secteurId]||{};
-    csv += ligne(jourLocal(p.datePassage), p.equipeNom||'', s.nom||'', s.commune||'', p.adresse||'', p.statut, p.modePaiement||'', p.montant?Number(p.montant).toFixed(2):'0.00', p.nomDonateur||'', p.note||'');
+    csv += ligne(jourLocal(p.datePassage), p.equipeNom||'', p.horsSecteur ? 'Hors secteur' : (s.nom||''), s.commune||'', p.adresse||'', p.statut, p.modePaiement||'', p.montant?Number(p.montant).toFixed(2):'0.00', p.nomDonateur||'', p.note||'');
   }
   csv += "\n\nFOYERS À RELANCER\n" + ligne("Équipe","Secteur","Commune","Adresse","Note");
   for (const p of passages.filter(p=>p.aRelancer)) {
