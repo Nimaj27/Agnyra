@@ -432,6 +432,19 @@ l'avancement ni `recalculerTotauxSecteur`). Seuls `don` et `offert` ont un sens.
   et l'admin peut la supprimer depuis Passages.
 - Testé avec un Firestore simulé en mémoire (stats, caserne, CSV, suppression) ; pas testé dans un navigateur.
 
+## Carte du tableau de bord : points lisibles à la vue d'ensemble (13/11)
+
+Constat : à un zoom d'ensemble trop éloigné (≈ 9–10), les points d'adresse (rayon fixe 3,5 px) fusionnent
+en taches de couleur — on ne « voit plus les points ». Reproduit avec les vrais secteurs dans un navigateur de
+test (conteneur 420 px comme le tableau de bord) : au zoom 11 et au-delà, les points sont bien dessinés.
+`afficherSecteursSurCarte` (`js/carte.js`) :
+- `ZOOM_MIN_VUE_INITIALE = 11` : si l'emprise des secteurs (contours communaux, secteur éloigné) pousse
+  `fitBounds` en dessous, la vue est recentrée sur les adresses à ce zoom (le reste s'atteint en dézoomant) ;
+- `rayonPoint(zoom)` : points plus petits de loin (1,8 px à z ≤ 9 → 4,5 px à z ≥ 13), mis à jour à chaque
+  `zoomend` (`map._pointsAdresses`, un seul écouteur par carte) ; les points gris « sans secteur » sont à 85 %.
+- Cause exacte du zoom trop lointain sur le site réel non établie (non reproduit avec les secteurs seuls ; piste :
+  contours communaux de `geo.api.gouv.fr` qui élargissent l'emprise).
+
 ## Points ouverts / non tranchés
 
 (aucun pour l'instant)
