@@ -228,13 +228,14 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
   const baseDe = s => cleBaseCommune(s.commune);
   secteurs.forEach(s => { nbParCommune[baseDe(s)] = (nbParCommune[baseDe(s)]||0) + 1; });
 
-  // Zones issues des adresses réelles, pour les secteurs sans polygone précalculé.
-  // Dans une commune découpée, les petits secteurs sont tracés d'abord et les plus
-  // grands se creusent autour d'eux : aucune zone ne recouvre une autre.
+  // Zones issues des adresses réelles, pour tous les secteurs sans polygone précalculé
+  // (communes découpées ou non : même rendu partout). Les petits secteurs d'une même
+  // commune sont tracés d'abord et les plus grands se creusent autour d'eux : aucune zone
+  // n'en recouvre une autre.
   const zonesAdresses = new Map();
   const parCommuneZ = {};
   secteurs.forEach(s => {
-    if (!POLYGONES_SECTEURS[s.nom] && nbParCommune[baseDe(s)] > 1 && s.rues && s.rues.length > 0) {
+    if (!POLYGONES_SECTEURS[s.nom] && s.rues && s.rues.length > 0) {
       (parCommuneZ[baseDe(s)] = parCommuneZ[baseDe(s)] || []).push(s);
     }
   });
@@ -250,15 +251,14 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     }
   }
 
-  // Communes découpées : toutes les adresses de la base qu'aucun secteur ne couvre sont
-  // dessinées en gris (sous les points colorés), pour repérer d'un coup d'œil ce qui
-  // n'est affecté à personne.
+  // Toutes les adresses de la base qu'aucun secteur ne couvre sont dessinées en gris
+  // (sous les points colorés), pour repérer d'un coup d'œil ce qui n'est affecté à personne.
   let nbSansSecteur = 0;
   {
     const couvertes = new Set();
     for (const s of secteurs) for (const [lon, lat] of pointsSecteur(s)) couvertes.add(`${cleBaseCommune(s.commune)}|${lon},${lat}`);
     const vues = new Set();
-    for (const commune of Object.keys(nbParCommune).filter(c => nbParCommune[c] > 1)) {
+    for (const commune of Object.keys(nbParCommune)) {
       const base = cleBaseCommune(commune);
       if (vues.has(base)) continue;
       vues.add(base);
@@ -274,18 +274,20 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
   }
   layers.nbSansSecteur = nbSansSecteur;
 
-  // Contours communaux nécessaires (communes non découpées), demandés en parallèle :
-  // en séquence, un service lent rallongerait d'autant l'affichage de la carte.
+  // Contours communaux : dernier recours, uniquement pour un secteur sans aucune adresse connue
+  // dans une commune non découpée. Demandés en parallèle : en séquence, un service lent
+  // rallongerait d'autant l'affichage de la carte.
   await Promise.all([...new Set(secteurs
-    .filter(s => !POLYGONES_SECTEURS[s.nom] && !(nbParCommune[baseDe(s)] > 1) && COMMUNES_INSEE[s.commune])
+    .filter(s => !POLYGONES_SECTEURS[s.nom] && !(nbParCommune[baseDe(s)] > 1) && COMMUNES_INSEE[s.commune] && pointsSecteur(s).length === 0)
     .map(s => COMMUNES_INSEE[s.commune]))].map(code => fetchContourCommune(code)));
 
   for (const secteur of secteurs) {
-    const codeInsee=COMMUNES_INSEE[secteur.commune]; if(!codeInsee) continue;
+    const codeInsee = COMMUNES_INSEE[secteur.commune];
+    const communeDecoupee = nbParCommune[baseDe(secteur)] > 1;
+    // Un point par adresse du secteur (rien pour un secteur à polygone précalculé ou sans rues)
+    const pointsAdresses = POLYGONES_SECTEURS[secteur.nom] ? [] : pointsSecteur(secteur);
 
     let geojson = null;
-    const communeDecoupee = nbParCommune[baseDe(secteur)] > 1;
-
     // 1. Polygone précalculé (partition Voronoï, sans chevauchement) — instantané
     if (POLYGONES_SECTEURS[secteur.nom]) {
       geojson = { type: "Feature", geometry: POLYGONES_SECTEURS[secteur.nom], properties: {} };
@@ -294,30 +296,21 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
     else if (zonesAdresses.has(secteur.id)) {
       geojson = zonesAdresses.get(secteur.id);
     }
-    // 3. Sinon, géocodage à la volée pour les découpages non précalculés
-    else if (communeDecoupee && secteur.rues && secteur.rues.length > 0) {
+    // 3. Rues absentes de la base d'adresses dans une commune découpée : géocodage à la volée
+    else if (!pointsAdresses.length && communeDecoupee && secteur.rues && secteur.rues.length > 0) {
       geojson = await calculerZoneApproximative(secteur.rues, secteur.commune);
     }
-    // 4. Dans une commune découpée, un secteur dont on ne sait pas situer les rues
-    //    (liste « À définir », rues vides ou introuvables) n'est pas tracé : lui
-    //    peindre toute la commune recouvrirait ses voisins.
-    if (!geojson && communeDecoupee) continue;
-    // 5. Sinon, contour communal officiel
-    let viaAdresses = false;
-    if (!geojson) geojson = await fetchContourCommune(codeInsee);
-    // Contour indisponible (service en panne) : on se rabat sur les adresses du secteur
-    if (!geojson && secteur.rues && secteur.rues.length > 0) {
-      const zone = await zoneDepuisAdresses(secteur);
-      if (zone) { geojson = { type: "Feature", geometry: zone.geometry, properties: {} }; viaAdresses = true; }
+    // 4. Ni zone ni adresse connue : dans une commune découpée on ne trace rien (peindre toute la
+    //    commune recouvrirait ses voisins) ; sinon, contour communal officiel en dernier recours.
+    if (!geojson && !pointsAdresses.length) {
+      if (communeDecoupee || !codeInsee) continue;
+      geojson = await fetchContourCommune(codeInsee);
+      if (!geojson) continue;
     }
-    if (!geojson) continue;
     // Priorité à la couleur choisie pour le secteur (Modifier) — repli sur la couleur d'équipe si non définie
     const couleur = secteur.couleur || getCouleurEquipe(secteur.equipeId,equipes);
-    // Communes découpées : bordure colorée + remplissage plus léger pour
-    // que les éventuels chevauchements restent lisibles
-    // Secteur dont on connaît les adresses : ce sont elles, colorées par secteur, qui
-    // le distinguent de ses voisins ; la zone n'est plus qu'un fond léger.
-    const pointsAdresses = ((communeDecoupee || viaAdresses) && !POLYGONES_SECTEURS[secteur.nom]) ? pointsSecteur(secteur) : [];
+    // Secteur dont on connaît les adresses : ce sont elles, colorées par secteur, qui le
+    // distinguent de ses voisins ; la zone n'est plus qu'un fond léger (même rendu partout).
     const style = pointsAdresses.length
       ? { color: couleur, weight: 1.5, opacity: 0.7, fillColor: couleur,
           fillOpacity: secteur.statut==="termine"?0.22:secteur.statut==="en_cours"?0.18:0.1 }
@@ -328,10 +321,9 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
       : { color: "#FFFFFF", weight: 2, opacity: 0.9,
           fillColor: couleur,
           fillOpacity: secteur.statut==="termine"?0.65:secteur.statut==="en_cours"?0.5:secteur.equipeId?0.4:0.15 };
-    const layer=L.geoJSON(geojson,{ style });
+    const layer = geojson ? L.geoJSON(geojson,{ style }) : null;
     const popupHtml = `<div style="font-family:Inter,sans-serif;min-width:160px;"><strong>${esc(secteur.nom)}</strong><br><span style="color:#666">${esc(secteur.commune)}</span><br>👥 ${esc(secteur.equipNom||'Non affecté')}<br><strong style="color:#16A34A">${Number(secteur.totalCollecte||0).toLocaleString('fr-FR')} €</strong></div>`;
-    layer.bindPopup(popupHtml);
-    layer.addTo(map); layers.push(layer);
+    if (layer) { layer.bindPopup(popupHtml); layer.addTo(map); layers.push(layer); }
     if (pointsAdresses.length) {
       const marqueurs = pointsAdresses.map(([lon, lat]) =>
         L.circleMarker([lat, lon], { renderer: rendu, radius: rayon0, color: "#FFFFFF", weight: 1, fillColor: couleur, fillOpacity: 0.95 }).bindPopup(popupHtml));
@@ -339,7 +331,8 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
       const groupe = L.layerGroup(marqueurs);
       groupe.addTo(map); layers.push(groupe);
     }
-    const b=layer.getBounds(); if(b.isValid()) bounds.push(b);
+    const b = layer ? layer.getBounds() : L.latLngBounds(pointsAdresses.map(([lon, lat]) => [lat, lon]));
+    if (b.isValid()) bounds.push(b);
   }
   if (bounds.length>0) {
     let ab=bounds[0]; bounds.forEach(b=>{ab=ab.extend(b);});
