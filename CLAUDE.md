@@ -478,6 +478,17 @@ modifier). `equipes`/`secteurs`/`pins` gardent `delete` réservé à l'admin. À
 (Cloud Function) avant d'onboarder une 2ᵉ caserne active. **Les règles ne sont pas déployées par la CI** : il faut
 republier `firestore.rules` dans la console Firebase pour que ce soit effectif.
 
+## Absent / à relancer : liste vide à tort (13/11)
+
+`ajouterPassage` posait `aRelancer` seulement pour le statut `absent`. Or le formulaire de saisie enregistre
+`relance` quand la case « À relancer » est cochée (et la dictée « absent à relancer » la coche) : ces foyers étaient
+comptés comme absents (secteur, tableau de bord) mais **n'apparaissaient dans aucune liste de relances** (accueil
+équipier, secteur, page admin Relances, feuille de relance PDF/CSV, qui filtrent tous sur `aRelancer`). Corrigé :
+`aRelancer` vaut vrai pour `absent` **et** `relance`. Les passages déjà créés ainsi restent invisibles tant qu'on ne les
+corrige pas (crayon → « À relancer »). Rappel du comportement : `absent` = non « traité » (reste dans les boîtes
+restantes), compté dans `nbFoyersAbsents`, ajouté aux relances ; la relance met à jour le même document
+(`nbPassages` + 1).
+
 ## Structure du code
 
 Build modulaire → fichier unique. Ne jamais éditer `index-monofichier.html`
