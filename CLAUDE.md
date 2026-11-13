@@ -116,7 +116,7 @@ n'a de logo figé en dur.
      créer/gérer n'importe quelle caserne.
    - Équipier (session Firebase anonyme via code PIN) : **accès ouvert sans
      vérification de caserne** sur `equipes`/`secteurs`/`passages`/`pins`
-     (get/list/create/update). Une session anonyme ne porte aucune info de
+     (get/list/create/update, + delete sur `passages` depuis le 13/11). Une session anonyme ne porte aucune info de
      caserne dans son jeton — un cloisonnement robuste demande une **Cloud
      Function** qui vérifie le PIN côté serveur et délivre un jeton avec
      `organisationId`/`equipeId` en claims. Le code de cette fonction existe
@@ -427,17 +427,26 @@ l'avancement ni `recalculerTotauxSecteur`). Seuls `don` et `offert` ont un sens.
   nom et lieu facultatifs (`nomDonateur`/`adresse`), liste de ses ventes avec suppression.
 - Admin : Passages → filtre « 🧭 Ventes hors secteur », colonne Secteur = « Hors secteur », bouton 🗑️ par ligne ;
   le tableau de bord affiche leur nombre et montant sous « Foyers visités » ; l'export CSV indique « Hors secteur ».
-- ⚠️ `firestore.rules` réserve `delete` sur `passages` à l'admin : un équipier qui supprime sa vente reçoit un refus
-  (message explicite, l'admin peut la supprimer). Voir « Points ouverts ».
+- La suppression d'une vente par l'équipier suppose la règle `delete` ouverte sur `passages` (voir « Suppression
+  d'un passage par un équipier » plus bas) ; tant que les règles ne sont pas republiées, il reçoit un refus explicite
+  et l'admin peut la supprimer depuis Passages.
 - Testé avec un Firestore simulé en mémoire (stats, caserne, CSV, suppression) ; pas testé dans un navigateur.
 
 ## Points ouverts / non tranchés
 
-- **Suppression d'un passage par un équipier** : `supprimerPassage` est appelé côté équipier par le bouton
-  « Supprimer » de la fenêtre d'un numéro et par « Annuler la dernière saisie », ainsi que par les ventes hors
-  secteur. Les règles du dépôt réservent `delete` à l'admin de la caserne → refus « Missing or insufficient
-  permissions » si ces règles sont publiées telles quelles. À trancher : ouvrir `delete` aux sessions équipier
-  (au moins pour les passages, y compris hors secteur) ou remplacer la suppression par une annulation.
+(aucun pour l'instant)
+
+## Suppression d'un passage par un équipier (13/11)
+
+`supprimerPassage` est appelé côté équipier par le bouton « Supprimer » de la fenêtre d'un numéro, par « Annuler la
+dernière saisie » et par les ventes hors secteur. Les règles réservaient `delete` à l'admin de la caserne → refus
+« Missing or insufficient permissions ». **Décision (13/11) : ouvrir `delete` sur `passages` à toute session
+authentifiée** (`firestore.rules`), comme get/list/create/update. Limite assumée : une session anonyme ne porte ni
+caserne ni équipe, donc la règle ne peut pas se restreindre aux passages de SON équipe — l'app ne propose que les
+siens, mais n'importe quelle session peut en théorie supprimer n'importe quel passage (c'était déjà le cas pour les
+modifier). `equipes`/`secteurs`/`pins` gardent `delete` réservé à l'admin. À refermer avec le reste du bloc équipier
+(Cloud Function) avant d'onboarder une 2ᵉ caserne active. **Les règles ne sont pas déployées par la CI** : il faut
+republier `firestore.rules` dans la console Firebase pour que ce soit effectif.
 
 ## Structure du code
 

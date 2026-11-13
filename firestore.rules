@@ -19,8 +19,9 @@
 //     session authentifiée (y compris anonyme/équipier), SANS distinction
 //     de caserne pour l'instant — décision temporaire, voir le bloc ⚠️
 //     plus bas dans ce fichier pour le pourquoi et les conditions de
-//     fermeture. Seule la suppression reste réservée à l'admin de la
-//     caserne concernée (ou à un super-admin).
+//     fermeture. La suppression reste réservée à l'admin de la caserne
+//     concernée (ou à un super-admin), SAUF pour les passages : un
+//     équipier doit pouvoir corriger une saisie (voir plus bas).
 //   - config/journal : réservés à un admin authentifié (n'importe lequel :
 //     ces deux collections ne portent pas encore d'organisationId, elles
 //     restent globales pour l'instant — à revoir si elles doivent un jour
@@ -118,9 +119,15 @@ service cloud.firestore {
       allow get, list, create, update: if request.auth != null;
       allow delete: if accesDocumentOrganisation();
     }
+    // Passages : l'équipier peut aussi SUPPRIMER (bouton « Supprimer » de la
+    // fenêtre d'un numéro, « Annuler la dernière saisie », ventes hors
+    // secteur). Même limite que le reste de ce bloc : une session anonyme ne
+    // porte ni caserne ni équipe dans son jeton, donc la règle ne peut pas
+    // se restreindre aux passages de SON équipe — l'app ne propose que les
+    // siens, mais rien ne l'impose côté serveur (comme pour update, déjà
+    // ouvert). À refermer en même temps que get/list/create/update.
     match /passages/{id} {
-      allow get, list, create, update: if request.auth != null;
-      allow delete: if accesDocumentOrganisation();
+      allow get, list, create, update, delete: if request.auth != null;
     }
     match /pins/{id} {
       allow get, list, create, update: if request.auth != null;
