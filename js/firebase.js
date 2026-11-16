@@ -15,7 +15,7 @@ const FIREBASE_CONFIG = {
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import {
   getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager,
-  collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc,
+  collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache, setDoc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp, increment,
   enableNetwork, disableNetwork, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
@@ -60,14 +60,92 @@ const ORGANISATION_ACTUELLE = "pacy";
 
 const fsCollection = (name)          => collection(db, name);
 const fsDoc        = (path, ...id)   => doc(db, path, ...id);
-const fsAdd        = (col, data)     => addDoc(collection(db, col), { ...data, createdAt: serverTimestamp() });
-const fsSet        = (col, id, data) => setDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
-const fsUpdate     = (col, id, data) => updateDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() });
-const fsDelete     = (col, id)       => deleteDoc(doc(db, col, id));
-const fsGet        = async (col, id) => { const s = await getDoc(doc(db, col, id)); return s.exists() ? { id: s.id, ...s.data() } : null; };
-const fsGetAll     = async (col)     => { const s = await getDocs(collection(db, col)); return s.docs.map(d => ({ id: d.id, ...d.data() })); };
+// ── Écritures tolérantes au réseau faible ────────────────────────
+// Le SDK Firestore ne résout une écriture (setDoc/updateDoc/deleteDoc/commit) qu'à l'accusé du serveur.
+// Sans réseau, ou avec un réseau qui accroche, la promesse reste « en attente » indéfiniment alors que
+// l'écriture est DÉJÀ enregistrée sur l'appareil (cache persistant) : les écouteurs la voient aussitôt et
+// elle part d'elle-même au retour du réseau. Mesuré avec le vrai SDK, serveur injoignable : addDoc non
+// résolu après 8 s, getDoc non résolu après 12 s, getDocs résolu après ~8 s, lecture du cache en 4 ms.
+// L'interface attendait donc l'accusé (bouton bloqué sur « … », risque de doublon si on retapait).
+// `ecritureLocale` rend la main dès l'accusé du serveur, ou après DELAI_ECRITURE_MS (tout de suite si le
+// navigateur se sait hors ligne) : l'écriture reste suivie, comptée « en attente », et un refus tardif du
+// serveur (règles, données invalides) est signalé par `surEchecEcriture` au lieu d'être perdu.
+const DELAI_ECRITURE_MS = 2000;
+const DELAI_LECTURE_MS  = 1000;
+let _ecrituresEnAttente = 0;
+const _ecouteursAttente = new Set(), _ecouteursLenteur = new Set(), _ecouteursEchec = new Set();
+const _signaler = (ensemble, ...args) => ensemble.forEach(cb => { try { cb(...args); } catch (e) { console.warn(e); } });
+const _abonnement = (ensemble) => (cb) => { ensemble.add(cb); return () => ensemble.delete(cb); };
+const nbEcrituresEnAttente = () => _ecrituresEnAttente;
+const surEcrituresEnAttente = _abonnement(_ecouteursAttente);   // cb(nombre) à chaque changement
+const surEcritureLente      = _abonnement(_ecouteursLenteur);   // cb() : une écriture n'a pas été confirmée tout de suite
+const surEchecEcriture      = _abonnement(_ecouteursEchec);     // cb(erreur) : refus du serveur après coup
+
+function ecritureLocale(promesse, delai = DELAI_ECRITURE_MS) {
+  _ecrituresEnAttente++; _signaler(_ecouteursAttente, _ecrituresEnAttente);
+  let rendu = false, minuteur = null;
+  return new Promise((resolve, reject) => {
+    const terminer = () => { _ecrituresEnAttente--; _signaler(_ecouteursAttente, _ecrituresEnAttente); };
+    minuteur = setTimeout(() => {
+      if (rendu) return;
+      rendu = true; _signaler(_ecouteursLenteur); resolve(undefined);
+    }, isOnline() ? delai : 0);
+    promesse.then(
+      (v) => { terminer(); if (!rendu) { rendu = true; clearTimeout(minuteur); resolve(v); } },
+      (e) => {
+        terminer();
+        if (!rendu) { rendu = true; clearTimeout(minuteur); reject(e); }
+        else _signaler(_ecouteursEchec, e);
+      });
+  });
+}
+
+// Lecture qui se rabat sur le cache local quand le serveur tarde (réseau faible) ou que le navigateur se
+// sait hors ligne. Réservée aux recherches faites AVANT une écriture (passage existant, secteur) : le cache
+// de l'équipier est tenu à jour par ses écouteurs. Jamais pour une lecture d'affichage en bloc (tableau de
+// bord, exports) : un cache partiel y donnerait des totaux faux.
+async function lireAvecRepli(serveur, cache, delai = DELAI_LECTURE_MS) {
+  if (!isOnline()) return cache();
+  const pServeur = serveur();
+  pServeur.catch(() => {});                       // pas d'erreur non gérée si on a déjà répondu depuis le cache
+  const REPLI = Symbol("repli");
+  const r = await Promise.race([pServeur, new Promise(res => setTimeout(() => res(REPLI), delai))]);
+  if (r !== REPLI) return r;
+  try { return await cache(); } catch (e) { return pServeur; }   // pas en cache : on attend le serveur
+}
+
+// Lot d'écritures atomique : tout est écrit ou rien, y compris hors ligne (rejoué à la reconnexion).
+function fsLot() {
+  const lot = writeBatch(db);
+  return {
+    ajouter(col, data) { const ref = doc(collection(db, col)); lot.set(ref, { ...data, createdAt: serverTimestamp() }); return ref.id; },
+    modifier(col, id, data) { lot.update(doc(db, col, id), { ...data, updatedAt: serverTimestamp() }); },
+    supprimer(col, id) { lot.delete(doc(db, col, id)); },
+    valider() { return ecritureLocale(lot.commit()); }
+  };
+}
+
+const fsAdd        = async (col, data) => {
+  const ref = doc(collection(db, col));           // identifiant connu tout de suite, sans attendre le serveur
+  await ecritureLocale(setDoc(ref, { ...data, createdAt: serverTimestamp() }));
+  return ref;
+};
+const fsSet        = (col, id, data) => ecritureLocale(setDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() }, { merge: true }));
+const fsUpdate     = (col, id, data) => ecritureLocale(updateDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() }));
+const fsDelete     = (col, id)       => ecritureLocale(deleteDoc(doc(db, col, id)));
+const _versDoc     = (s) => s.exists() ? { id: s.id, ...s.data() } : null;
+const fsGet        = async (col, id) => _versDoc(isOnline() ? await getDoc(doc(db, col, id)) : await getDocFromCache(doc(db, col, id)));
+const fsGetAll     = async (col)     => { const s = isOnline() ? await getDocs(collection(db, col)) : await getDocsFromCache(collection(db, col)); return s.docs.map(d => ({ id: d.id, ...d.data() })); };
 const fsQuery      = async (col, ...constraints) => {
-  const s = await getDocs(query(collection(db, col), ...constraints));
+  const q = query(collection(db, col), ...constraints);
+  const s = isOnline() ? await getDocs(q) : await getDocsFromCache(q);
+  return s.docs.map(d => ({ id: d.id, ...d.data() }));
+};
+// Variantes « rapides » pour les recherches faites avant une écriture (voir lireAvecRepli)
+const fsGetRapide  = async (col, id) => _versDoc(await lireAvecRepli(() => getDoc(doc(db, col, id)), () => getDocFromCache(doc(db, col, id))));
+const fsQueryRapide = async (col, ...constraints) => {
+  const q = query(collection(db, col), ...constraints);
+  const s = await lireAvecRepli(() => getDocs(q), () => getDocsFromCache(q));
   return s.docs.map(d => ({ id: d.id, ...d.data() }));
 };
 const fsListen     = (col, cb, ...constraints) => {
@@ -218,8 +296,9 @@ function onNetworkChange(cb) {
 export {
   db, auth, writeBatch,
   COLLECTIONS, ORGANISATION_ACTUELLE,
-  fsCollection, fsDoc, fsAdd, fsSet, fsUpdate, fsDelete,
-  fsGet, fsGetAll, fsQuery, fsListen, fsListenDoc, fsGetAllOrg, fsListenOrg,
+  fsCollection, fsDoc, fsAdd, fsSet, fsUpdate, fsDelete, fsLot,
+  fsGet, fsGetAll, fsQuery, fsGetRapide, fsQueryRapide, fsListen, fsListenDoc, fsGetAllOrg, fsListenOrg,
+  nbEcrituresEnAttente, surEcrituresEnAttente, surEcritureLente, surEchecEcriture,
   definirOrganisationCourante, organisationCourante,
   loginGoogle, getLoginRedirect, logoutGoogle, onAuth, isAdmin, loginPin,
   obtenirOrganisationAdmin, estSuperAdminEmail,

@@ -548,6 +548,45 @@ entier, insensible à la casse/aux accents/à la ponctuation) ; le fond de carte
   Pas vérifié dans l'application déployée.
 - Non traité : l'import CSV des secteurs n'affiche pas ce diagnostic.
 
+## Saisie hors réseau et totaux de secteur atomiques (16/11)
+
+Deux défauts connus (« écritures hors ligne attendues jusqu'à l'accusé serveur », « totaux de secteur recalculés par
+lecture-écriture ») corrigés. **Mesuré avec le vrai SDK Firestore, serveur injoignable** : `addDoc` non résolu après 8 s,
+`getDoc` d'un document hors cache non résolu après 12 s, `getDocs` résolu après ~8 s (cache), lecture du cache en 4 ms ;
+les écouteurs voient l'écriture aussitôt (`hasPendingWrites`). L'interface attendait pourtant l'accusé : bouton bloqué sur
+« … », doublons si on retapait.
+- **`js/firebase.js`** : `ecritureLocale(promesse)` rend la main à l'accusé du serveur, ou après 2 s (tout de suite si
+  `navigator.onLine` est faux) ; l'écriture reste suivie par le SDK (cache persistant, rejouée à la reconnexion) et comptée
+  (`nbEcrituresEnAttente`, `surEcrituresEnAttente`). `surEcritureLente` (aucun accusé tout de suite) et `surEchecEcriture`
+  (refus du serveur **après** que l'écran ait confirmé : règles, document supprimé…) alimentent des toasts dans `app.js`.
+  `fsAdd/fsSet/fsUpdate/fsDelete` passent par là ; `fsAdd` crée l'identifiant côté client (`doc(collection)` + `setDoc`) ;
+  `fsLot()` = lot atomique (`ajouter/modifier/supprimer/valider`). `fsGet/fsQuery/fsGetAll` lisent le cache directement quand
+  le navigateur est hors ligne. `fsGetRapide/fsQueryRapide` (`lireAvecRepli`) : serveur d'abord, cache après 1 s —
+  **réservées aux recherches faites avant une écriture** (secteur, passage existant, anti-doublon), jamais aux lectures
+  d'affichage en bloc (un cache partiel fausserait les totaux). `lireSecteur(id,{rapide})` et `passagesDuSecteur(id,{rapide})`
+  les utilisent sur les écrans équipier ; les pages admin gardent la lecture complète.
+- **`js/tournee.js` — totaux par incréments atomiques** : `ajouterPassage`, `modifierPassage`, `supprimerPassage` (et
+  `marquerRelance`) écrivent le passage **et** `increment(écart)` sur le secteur dans un même lot (`contributionPassage` :
+  collecte = dons, foyers traités = don/offert/refus, absents = absent/relance, calendriers = don/offert, nb de passages).
+  Plus de lecture avant d'écrire : pas de course entre deux équipiers, et rien à recalculer à partir d'un cache incomplet hors
+  ligne. La caserne d'un nouveau passage est celle de la session (`organisationCourante()`), à défaut celle du secteur/équipe.
+  Suppression d'un passage déjà supprimé : pas de second décompte. Si l'état précédent est introuvable : écriture simple +
+  `recalculerTotauxSecteur` en arrière-plan (jamais hors ligne), la réconciliation corrigera le reste.
+- **Réconciliation** : `statsGlobalesTournee()` renvoie `ecartsTotaux` (`ecartsTotauxSecteurs`, recomptage depuis les
+  passages déjà chargés) ; le tableau de bord appelle `corrigerTotauxSecteurs` (au plus 1×/min) qui attend 3 s, **relit**
+  chaque secteur et ses passages et ne réécrit que si l'écart persiste (un décalage entre les deux lectures de stats peut
+  imiter un écart). Un même passage modifié par deux personnes au même instant peut encore faire dériver un total
+  (états précédents identiques) : détecté et corrigé à la visite suivante du tableau de bord.
+- **Pastille réseau** : « 🟢 En ligne » / « 🔴 Hors-ligne » + « · ⏳ N » (saisies sur l'appareil, pas encore confirmées),
+  infobulle explicative.
+- **Latences mesurées (vrai SDK)** : serveur injoignable mais navigateur « en ligne » : enregistrer un passage 2,0 s,
+  modifier 3,0 s (jamais auparavant) ; navigateur hors ligne : 3 à 15 ms, anti-doublon 7 ms ; totaux locaux justes après
+  ajout/modification/suppression hors ligne. Tests : Firestore simulé (ajouts, modifications, suppression ×2, 140 opérations
+  simultanées sans écart, même passage en parallèle, faux écart, hors secteur, lot atomique) + SDK réel dans Chromium.
+- Non vérifié : comportement avec un vrai serveur Firestore (règles, reconnexion), et refus tardif du serveur (signalé par
+  `surEchecEcriture`, non simulable sans serveur). Les écritures admin passent aussi par `ecritureLocale` : un import long
+  sur réseau lent peut afficher le toast « Enregistré sur cet appareil ».
+
 ## Structure du code
 
 Build modulaire → fichier unique. Ne jamais éditer `index-monofichier.html`

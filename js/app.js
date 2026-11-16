@@ -2,6 +2,7 @@ import {
   onAuth, loginGoogle, getLoginRedirect, logoutGoogle, loginPin, isAdmin,
   obtenirOrganisationAdmin, estSuperAdminEmail, listerOrganisations, obtenirOrganisation,
   isOnline, onNetworkChange, assurerSession, estAnonyme,
+  nbEcrituresEnAttente, surEcrituresEnAttente, surEcritureLente, surEchecEcriture,
   COLLECTIONS, fsGet, fsSet, fsDelete, fsGetAll, fsGetAllOrg, fsListenDoc,
   definirOrganisationCourante
 } from "./firebase.js";
@@ -11,7 +12,7 @@ import {
   ajouterPassage, passagesDuSecteur, passagesDeLEquipe,
   ventesHorsSecteurEquipe, supprimerVenteHorsSecteur,
   foyersARelancer, marquerRelance, supprimerPassage, modifierPassage, verifierDoublonAdresse,
-  ecouterPassagesSecteur,
+  ecouterPassagesSecteur, corrigerTotauxSecteurs,
   lireConfig, sauvegarderConfig,
   exporterBilanCSV, telechargerCSV, celluleCSV, effacerTousLesPassages,
   dateLocaleISO, jourLocal, heureLocale,
@@ -162,22 +163,53 @@ function libellePassage(n) {
 }
 
 // ── Badge état réseau (hors-ligne / synchro) ──────────────────
+// Texte de la pastille : état du réseau + nombre de saisies enregistrées sur l'appareil et pas encore
+// confirmées par le serveur (« ⏳ 2 en attente »), pour que l'équipier sache que rien n'est perdu.
+function libelleReseau() {
+  const n = nbEcrituresEnAttente();
+  return `${isOnline() ? '🟢 En ligne' : '🔴 Hors-ligne'}${n > 0 ? ` · ⏳ ${n}` : ''}`;
+}
+function infobulleReseau() {
+  const n = nbEcrituresEnAttente();
+  return n > 0 ? `${n} saisie${n > 1 ? "s" : ""} enregistrée${n > 1 ? "s" : ""} sur cet appareil, pas encore confirmée${n > 1 ? "s" : ""} par le serveur` : "";
+}
 function renderNetworkBadge() {
-  return `<span id="network-badge" class="network-badge ${isOnline() ? 'network-badge--online' : 'network-badge--offline'}">${isOnline() ? '🟢 En ligne' : '🔴 Hors-ligne'}</span>`;
+  return `<span id="network-badge" class="network-badge ${isOnline() ? 'network-badge--online' : 'network-badge--offline'}" title="${h(infobulleReseau())}">${libelleReseau()}</span>`;
 }
 
 function bindNetworkBadge() {
   const badge = document.getElementById("network-badge");
   if (!badge) return () => {};
-  return onNetworkChange((online) => {
+  const rafraichir = () => {
     const b = document.getElementById("network-badge");
     if (!b) return;
-    b.textContent = online ? '🟢 En ligne' : '🔴 Hors-ligne';
-    b.className = `network-badge ${online ? 'network-badge--online' : 'network-badge--offline'}`;
+    b.textContent = libelleReseau();
+    b.title = infobulleReseau();
+    b.className = `network-badge ${isOnline() ? 'network-badge--online' : 'network-badge--offline'}`;
+  };
+  const desabonnerReseau = onNetworkChange((online) => {
+    rafraichir();
     if (online) toast("Connexion rétablie — synchronisation en cours…", "success");
-    else toast("Mode hors-ligne — tes saisies seront synchronisées au retour du réseau", "info");
+    else toast("Mode hors-ligne — tes saisies sont gardées sur ton téléphone et seront envoyées au retour du réseau", "info");
   });
+  const desabonnerAttente = surEcrituresEnAttente(rafraichir);
+  return () => { desabonnerReseau(); desabonnerAttente(); };
 }
+
+// Suivi des écritures (une seule fois pour toute l'appli) : la saisie rend la main sans attendre le serveur
+// (voir ecritureLocale, firebase.js), donc deux cas à signaler à l'équipier.
+let _dernierAvisEcritureLente = 0;
+surEcritureLente(() => {
+  if (Date.now() - _dernierAvisEcritureLente < 30000) return;
+  _dernierAvisEcritureLente = Date.now();
+  toast("Enregistré sur cet appareil — envoi dès que le réseau le permet", "info");
+});
+surEchecEcriture((e) => {
+  // Refus du serveur après que l'écran ait déjà confirmé (règles Firestore, document supprimé entre-temps…)
+  console.error("Écriture refusée par le serveur :", e);
+  const motif = e?.code === "permission-denied" ? "permission refusée" : (e?.code || e?.message || "erreur inconnue");
+  toast(`⚠️ Une saisie n'a pas pu être enregistrée sur le serveur (${motif}). Vérifie-la et refais-la si besoin.`, "error");
+});
 
 function stopUnsubs() {
   APP.unsubs.forEach(fn => fn && fn());
@@ -716,6 +748,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.16", date: "2026-11-16", texte: "Saisie plus fiable avec un réseau faible ou absent : l'écran n'attend plus la confirmation du serveur pour valider un passage (fini le bouton bloqué sur « … » et les doublons en retapant). Le passage est gardé sur l'appareil et envoyé dès que le réseau revient ; la pastille indique « ⏳ N » saisies en attente d'envoi, et une alerte prévient si le serveur en refuse une. Les totaux de chaque secteur sont désormais mis à jour de façon atomique, sans risque d'erreur quand deux équipiers saisissent en même temps, et le tableau de bord corrige tout seul un éventuel écart." },
   { version: "1.15", date: "2026-11-16", texte: "Côté équipier : sous l'objectif d'un secteur (« 🎯 Objectif du secteur X / N calendriers »), un compteur séparé « 🧭 + N hors secteur » indique les calendriers vendus hors secteur par l'équipe. Ils ne sont pas comptés dans l'objectif du secteur, puisqu'ils n'appartiennent à aucun secteur." },
   { version: "1.14", date: "2026-11-13", texte: "Formulaire « Modifier le secteur » : sous « Rues / zones », l'appli indique combien de boîtes aux lettres sont couvertes, signale les rues qu'elle ne reconnaît pas dans la base d'adresses (le nom du fond de carte diffère parfois) et propose en un clic la rue la plus proche, avec ses numéros conservés. Elle repère aussi les doublons (même rue écrite de deux façons) et permet de retirer la ligne en trop." },
   { version: "1.13", date: "2026-11-13", texte: "Adresses en double : la base d'adresses rangeait parfois les mêmes maisons sous deux noms de rue (« Clos des Lilas » et « Résidence le Clos des Lilas », « Clos des Vallons » et « Rue Clos des Vallons »…). Ces rues jumelles sont maintenant reconnues : un seul nom suffit dans un secteur, et chaque maison n'est comptée qu'une fois (213 adresses en double retirées, le nombre de boîtes de certains secteurs baisse en conséquence, surtout Houlbec-Cocherel)." },
@@ -968,6 +1001,16 @@ async function renderDashboard() {
       fsGetAllOrg(COLLECTIONS.PASSAGES)
     ]);
     const badgesParEquipe = calculerBadges(stats.parEquipe, secteursActuels, passagesActuels);
+
+    // Réparation silencieuse des totaux de secteur si un écart persiste (voir corrigerTotauxSecteurs :
+    // double contrôle avant d'écrire). Au plus une fois par minute, jamais deux en parallèle.
+    if (stats.ecartsTotaux?.length && !APP._reconcilEnCours && Date.now() - (APP._reconcilT || 0) > 60000) {
+      APP._reconcilEnCours = true; APP._reconcilT = Date.now();
+      corrigerTotauxSecteurs(stats.ecartsTotaux)
+        .then(n => { if (n) toast(`Totaux de ${n} secteur${n > 1 ? "s" : ""} recalculé${n > 1 ? "s" : ""}`, "info"); })
+        .catch(e => console.warn("Réconciliation des totaux :", e?.message || e))
+        .finally(() => { APP._reconcilEnCours = false; });
+    }
 
     // Détection de nouveaux badges débloqués
     if (APP._badgesCache) {
@@ -2181,7 +2224,7 @@ async function chargerRelances() {
 
 // Traiter une relance : don, refus, ou toujours absent
 window.traiterRelance = async (passageId, secteurId) => {
-  const passages = await passagesDuSecteur(secteurId);
+  const passages = await passagesDuSecteur(secteurId, { rapide: true });
   const p = passages.find(x => x.id === passageId);
   if (!p) { toast("Passage introuvable", "error"); return; }
 
@@ -3707,7 +3750,7 @@ async function renderTerrainPassages() {
   const secteurId = sessionStorage.getItem("secteurActif");
   if (!secteurId) { naviguer("#terrain"); return; }
 
-  const secteur = await lireSecteur(secteurId);
+  const secteur = await lireSecteur(secteurId, { rapide: true });
   if (!secteur) { naviguer("#terrain"); return; }
 
   document.getElementById("main").innerHTML = `
@@ -3795,7 +3838,7 @@ async function renderTerrainPassages() {
   // Restaurer les raccourcis depuis le dernier passage de l'équipe sur ce secteur
   (async () => {
     try {
-      const passages = await passagesDuSecteur(secteurId);
+      const passages = await passagesDuSecteur(secteurId, { rapide: true });
       const dernier = passages
         .filter(p => p.equipeId === APP.equipeId && p.adresse)
         .sort((a,b) => (b.datePassage||'').localeCompare(a.datePassage||''))[0];
@@ -4106,7 +4149,7 @@ async function renderTerrainPassages() {
 // ════════════════════════════════════════════════════════════
 
 window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
-  const passages = await passagesDuSecteur(secteurId);
+  const passages = await passagesDuSecteur(secteurId, { rapide: true });
   const p = passages.find(x => x.id === passageId);
   if (!p) { toast("Passage introuvable", "error"); return; }
 
@@ -4840,8 +4883,8 @@ async function rafraichirModeRue() {
   if (!secteurId) return;
   try {
     const [secteur, passages] = await Promise.all([
-      lireSecteur(secteurId),
-      passagesDuSecteur(secteurId)
+      lireSecteur(secteurId, { rapide: true }),
+      passagesDuSecteur(secteurId, { rapide: true })
     ]);
     if (secteur) majModeRue(secteur, passages);
   } catch(e) { console.warn("Rafraîchissement mode rue:", e); }
@@ -4855,7 +4898,7 @@ async function surlignerRueSurCarte(rue) {
 
   const secteurId = sessionStorage.getItem("secteurActif");
   if (!secteurId) return;
-  const secteur = await lireSecteur(secteurId);
+  const secteur = await lireSecteur(secteurId, { rapide: true });
   if (!secteur) return;
 
   const infoRue = ruesDuSecteur(secteur).find(r => r.rue === rue);
@@ -4901,11 +4944,11 @@ window.quitterRue = () => {
 window.saisirNumero = async (numero, rue) => {
   const secteurId = sessionStorage.getItem("secteurActif");
   if (!secteurId) return;
-  const secteur = await lireSecteur(secteurId);
+  const secteur = await lireSecteur(secteurId, { rapide: true });
   const adresse = `${numero} ${rue}`;
 
   // Vérifier s'il existe déjà un passage à cette adresse
-  const passages = await passagesDuSecteur(secteurId);
+  const passages = await passagesDuSecteur(secteurId, { rapide: true });
   const existant = passages.find(p => normAdr(p.adresse) === normAdr(adresse));
 
   // Ce numéro vient-il d'un ajout manuel ?
@@ -5063,7 +5106,7 @@ window.mnAnnulerFusion = async (principale) => {
 window.mnNote = async () => {
   const ctx = window._mnCtx;
   if (!ctx) return;
-  const secteur = await lireSecteur(ctx.secteurId);
+  const secteur = await lireSecteur(ctx.secteurId, { rapide: true });
   const actuelle = lireNoteAdresse(secteur, ctx.adresse);
 
   const v = prompt(
@@ -5102,7 +5145,7 @@ window.mnMode = (mode) => {
 window.mnSupprimer = async (passageId, secteurId) => {
   if (!confirm("Supprimer ce passage ?")) return;
   try {
-    const liste = await passagesDuSecteur(secteurId);
+    const liste = await passagesDuSecteur(secteurId, { rapide: true });
     const avant = liste.find(x => x.id === passageId) || null;
     tracer(ACTIONS.SUPPRESSION, { avant, contexte: "mode rue", auteur: auteurCourant() });
     await supprimerPassage(passageId, secteurId);
@@ -5198,7 +5241,7 @@ window.annulerDerniereSaisie = async () => {
 
   // Retrouver le passage le plus récent de ce secteur pour cette équipe
   try {
-    const passages = await passagesDuSecteur(d.secteurId);
+    const passages = await passagesDuSecteur(d.secteurId, { rapide: true });
     const miens = passages
       .filter(p => p.equipeId === APP.equipeId)
       .sort((a, b) => (b.datePassage || '').localeCompare(a.datePassage || ''));

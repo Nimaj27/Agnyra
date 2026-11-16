@@ -617,7 +617,7 @@ body {
 .network-badge {
   font-size: .72rem; font-weight: 600;
   padding: 3px 8px; border-radius: 99px;
-  white-space: nowrap;
+  white-space: nowrap; flex-shrink: 0;
 }
 .network-badge--online  { background: rgba(34,197,94,.18); color: #BBF7D0; }
 .network-badge--offline { background: rgba(239,68,68,.25); color: #FECACA; animation: pulse-offline 2s infinite; }
@@ -1589,7 +1589,7 @@ const FIREBASE_CONFIG = {
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import {
   getFirestore, initializeFirestore, persistentLocalCache, persistentSingleTabManager,
-  collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc,
+  collection, doc, getDoc, getDocs, getDocFromCache, getDocsFromCache, setDoc, updateDoc, deleteDoc,
   query, where, orderBy, onSnapshot, serverTimestamp, increment,
   enableNetwork, disableNetwork, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
@@ -1634,14 +1634,92 @@ const ORGANISATION_ACTUELLE = "pacy";
 
 const fsCollection = (name)          => collection(db, name);
 const fsDoc        = (path, ...id)   => doc(db, path, ...id);
-const fsAdd        = (col, data)     => addDoc(collection(db, col), { ...data, createdAt: serverTimestamp() });
-const fsSet        = (col, id, data) => setDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() }, { merge: true });
-const fsUpdate     = (col, id, data) => updateDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() });
-const fsDelete     = (col, id)       => deleteDoc(doc(db, col, id));
-const fsGet        = async (col, id) => { const s = await getDoc(doc(db, col, id)); return s.exists() ? { id: s.id, ...s.data() } : null; };
-const fsGetAll     = async (col)     => { const s = await getDocs(collection(db, col)); return s.docs.map(d => ({ id: d.id, ...d.data() })); };
+// ── Écritures tolérantes au réseau faible ────────────────────────
+// Le SDK Firestore ne résout une écriture (setDoc/updateDoc/deleteDoc/commit) qu'à l'accusé du serveur.
+// Sans réseau, ou avec un réseau qui accroche, la promesse reste « en attente » indéfiniment alors que
+// l'écriture est DÉJÀ enregistrée sur l'appareil (cache persistant) : les écouteurs la voient aussitôt et
+// elle part d'elle-même au retour du réseau. Mesuré avec le vrai SDK, serveur injoignable : addDoc non
+// résolu après 8 s, getDoc non résolu après 12 s, getDocs résolu après ~8 s, lecture du cache en 4 ms.
+// L'interface attendait donc l'accusé (bouton bloqué sur « … », risque de doublon si on retapait).
+// `ecritureLocale` rend la main dès l'accusé du serveur, ou après DELAI_ECRITURE_MS (tout de suite si le
+// navigateur se sait hors ligne) : l'écriture reste suivie, comptée « en attente », et un refus tardif du
+// serveur (règles, données invalides) est signalé par `surEchecEcriture` au lieu d'être perdu.
+const DELAI_ECRITURE_MS = 2000;
+const DELAI_LECTURE_MS  = 1000;
+let _ecrituresEnAttente = 0;
+const _ecouteursAttente = new Set(), _ecouteursLenteur = new Set(), _ecouteursEchec = new Set();
+const _signaler = (ensemble, ...args) => ensemble.forEach(cb => { try { cb(...args); } catch (e) { console.warn(e); } });
+const _abonnement = (ensemble) => (cb) => { ensemble.add(cb); return () => ensemble.delete(cb); };
+const nbEcrituresEnAttente = () => _ecrituresEnAttente;
+const surEcrituresEnAttente = _abonnement(_ecouteursAttente);   // cb(nombre) à chaque changement
+const surEcritureLente      = _abonnement(_ecouteursLenteur);   // cb() : une écriture n'a pas été confirmée tout de suite
+const surEchecEcriture      = _abonnement(_ecouteursEchec);     // cb(erreur) : refus du serveur après coup
+
+function ecritureLocale(promesse, delai = DELAI_ECRITURE_MS) {
+  _ecrituresEnAttente++; _signaler(_ecouteursAttente, _ecrituresEnAttente);
+  let rendu = false, minuteur = null;
+  return new Promise((resolve, reject) => {
+    const terminer = () => { _ecrituresEnAttente--; _signaler(_ecouteursAttente, _ecrituresEnAttente); };
+    minuteur = setTimeout(() => {
+      if (rendu) return;
+      rendu = true; _signaler(_ecouteursLenteur); resolve(undefined);
+    }, isOnline() ? delai : 0);
+    promesse.then(
+      (v) => { terminer(); if (!rendu) { rendu = true; clearTimeout(minuteur); resolve(v); } },
+      (e) => {
+        terminer();
+        if (!rendu) { rendu = true; clearTimeout(minuteur); reject(e); }
+        else _signaler(_ecouteursEchec, e);
+      });
+  });
+}
+
+// Lecture qui se rabat sur le cache local quand le serveur tarde (réseau faible) ou que le navigateur se
+// sait hors ligne. Réservée aux recherches faites AVANT une écriture (passage existant, secteur) : le cache
+// de l'équipier est tenu à jour par ses écouteurs. Jamais pour une lecture d'affichage en bloc (tableau de
+// bord, exports) : un cache partiel y donnerait des totaux faux.
+async function lireAvecRepli(serveur, cache, delai = DELAI_LECTURE_MS) {
+  if (!isOnline()) return cache();
+  const pServeur = serveur();
+  pServeur.catch(() => {});                       // pas d'erreur non gérée si on a déjà répondu depuis le cache
+  const REPLI = Symbol("repli");
+  const r = await Promise.race([pServeur, new Promise(res => setTimeout(() => res(REPLI), delai))]);
+  if (r !== REPLI) return r;
+  try { return await cache(); } catch (e) { return pServeur; }   // pas en cache : on attend le serveur
+}
+
+// Lot d'écritures atomique : tout est écrit ou rien, y compris hors ligne (rejoué à la reconnexion).
+function fsLot() {
+  const lot = writeBatch(db);
+  return {
+    ajouter(col, data) { const ref = doc(collection(db, col)); lot.set(ref, { ...data, createdAt: serverTimestamp() }); return ref.id; },
+    modifier(col, id, data) { lot.update(doc(db, col, id), { ...data, updatedAt: serverTimestamp() }); },
+    supprimer(col, id) { lot.delete(doc(db, col, id)); },
+    valider() { return ecritureLocale(lot.commit()); }
+  };
+}
+
+const fsAdd        = async (col, data) => {
+  const ref = doc(collection(db, col));           // identifiant connu tout de suite, sans attendre le serveur
+  await ecritureLocale(setDoc(ref, { ...data, createdAt: serverTimestamp() }));
+  return ref;
+};
+const fsSet        = (col, id, data) => ecritureLocale(setDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() }, { merge: true }));
+const fsUpdate     = (col, id, data) => ecritureLocale(updateDoc(doc(db, col, id), { ...data, updatedAt: serverTimestamp() }));
+const fsDelete     = (col, id)       => ecritureLocale(deleteDoc(doc(db, col, id)));
+const _versDoc     = (s) => s.exists() ? { id: s.id, ...s.data() } : null;
+const fsGet        = async (col, id) => _versDoc(isOnline() ? await getDoc(doc(db, col, id)) : await getDocFromCache(doc(db, col, id)));
+const fsGetAll     = async (col)     => { const s = isOnline() ? await getDocs(collection(db, col)) : await getDocsFromCache(collection(db, col)); return s.docs.map(d => ({ id: d.id, ...d.data() })); };
 const fsQuery      = async (col, ...constraints) => {
-  const s = await getDocs(query(collection(db, col), ...constraints));
+  const q = query(collection(db, col), ...constraints);
+  const s = isOnline() ? await getDocs(q) : await getDocsFromCache(q);
+  return s.docs.map(d => ({ id: d.id, ...d.data() }));
+};
+// Variantes « rapides » pour les recherches faites avant une écriture (voir lireAvecRepli)
+const fsGetRapide  = async (col, id) => _versDoc(await lireAvecRepli(() => getDoc(doc(db, col, id)), () => getDocFromCache(doc(db, col, id))));
+const fsQueryRapide = async (col, ...constraints) => {
+  const q = query(collection(db, col), ...constraints);
+  const s = await lireAvecRepli(() => getDocs(q), () => getDocsFromCache(q));
   return s.docs.map(d => ({ id: d.id, ...d.data() }));
 };
 const fsListen     = (col, cb, ...constraints) => {
@@ -1813,7 +1891,9 @@ async function lireSecteurs() { return fsGetAllOrg(COLLECTIONS.SECTEURS); }
 async function secteursParEquipe(equipeId) {
   return fsQuery(COLLECTIONS.SECTEURS, where("equipeId", "==", equipeId));
 }
-async function lireSecteur(id) { return fsGet(COLLECTIONS.SECTEURS, id); }
+// rapide : repli sur le cache si le serveur tarde (écrans de terrain : le secteur est déjà dans le cache
+// de l'équipier, tenu à jour par ses écouteurs) ; jamais pour l'édition côté admin.
+async function lireSecteur(id, { rapide = false } = {}) { return rapide ? fsGetRapide(COLLECTIONS.SECTEURS, id) : fsGet(COLLECTIONS.SECTEURS, id); }
 function ecouterSecteurs(callback) {
   return fsListenOrg(COLLECTIONS.SECTEURS, (secteurs) => {
     secteurs.sort((a, b) => (a.commune + a.nom).localeCompare(b.commune + b.nom));
@@ -2108,21 +2188,61 @@ async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, statut,
   if (!secteurId||!equipeId) throw new Error("secteurId et equipeId obligatoires");
   if (!Object.values(STATUT_PASSAGE).includes(statut)) throw new Error("Statut invalide");
   if (statut===STATUT_PASSAGE.DON && montant<=0) throw new Error("Montant requis pour un don");
-  // La caserne du passage vient du secteur lui-même (source de vérité),
-  // pas d'une valeur fixe ni d'un champ fourni par l'appelant.
-  const secteur = await fsGet(COLLECTIONS.SECTEURS, secteurId);
-  const organisationId = secteur?.organisationId || ORGANISATION_ACTUELLE;
+  // La caserne du passage est celle de la session (les écrans ne proposent que les secteurs de la caserne
+  // courante) ; à défaut, celle du secteur lui-même, lue sans attendre un serveur lent ou absent.
+  let organisationId = organisationCourante();
+  if (!organisationId) {
+    const secteur = await fsGetRapide(COLLECTIONS.SECTEURS, secteurId).catch(() => null);
+    organisationId = secteur?.organisationId || ORGANISATION_ACTUELLE;
+  }
   // Le statut "offert" ne requiert aucun montant (calendrier donné sans contrepartie)
-  const passage = await fsAdd(COLLECTIONS.PASSAGES, {
+  const donnees = {
     organisationId,
     secteurId, equipeId, equipeNom, adresse:adresse||"", statut,
     montant: statut===STATUT_PASSAGE.DON ? Number(montant) : 0,
     modePaiement: statut===STATUT_PASSAGE.DON ? modePaiement : null,
     nomDonateur, note, saisiPar, aRelancer: statut===STATUT_PASSAGE.ABSENT || statut===STATUT_PASSAGE.RELANCE, datePassage: new Date().toISOString(),
     nbPassages: 1
-  });
-  await recalculerTotauxSecteur(secteurId);
-  return passage;
+  };
+  // Passage et totaux du secteur dans UN lot atomique, totaux par incréments : aucune lecture avant
+  // d'écrire, donc pas de course entre deux équipiers qui saisissent en même temps, et le lot est rejoué
+  // tel quel à la reconnexion (un recalcul fait hors ligne partirait d'un cache incomplet).
+  const lot = fsLot();
+  const id = lot.ajouter(COLLECTIONS.PASSAGES, donnees);
+  lot.modifier(COLLECTIONS.SECTEURS, secteurId, incrementsTotaux(null, donnees));
+  await lot.valider();
+  return { id };
+}
+
+// ── Totaux d'un secteur : contributions et incréments ────────────
+// Chaque passage du secteur contribue à : collecte (dons), foyers traités (don, offert, refus), absents
+// (absent, à relancer), calendriers (don, offert) et nombre de passages. Mêmes règles que
+// recalculerTotauxSecteur (secteurs.js), qui sert de réparation.
+function contributionPassage(p) {
+  const s = p && p.statut;
+  return {
+    totalCollecte:   s === STATUT_PASSAGE.DON ? Number(p.montant || 0) : 0,
+    nbFoyersVisites: (s === STATUT_PASSAGE.DON || s === STATUT_PASSAGE.OFFERT || s === STATUT_PASSAGE.REFUSE) ? 1 : 0,
+    nbFoyersAbsents: (s === STATUT_PASSAGE.ABSENT || s === STATUT_PASSAGE.RELANCE) ? 1 : 0,
+    nbCalendriers:   (s === STATUT_PASSAGE.DON || s === STATUT_PASSAGE.OFFERT) ? 1 : 0,
+    nbFoyersTotal:   p ? 1 : 0
+  };
+}
+const CHAMPS_TOTAUX = Object.keys(contributionPassage({}));
+// { champ: increment(écart) } pour les seuls champs qui changent entre deux états d'un passage
+// (avant = null : création ; apres = null : suppression)
+function incrementsTotaux(avant, apres) {
+  const a = contributionPassage(avant), b = contributionPassage(apres), out = {};
+  for (const k of CHAMPS_TOTAUX) { const ecart = (b[k] || 0) - (a[k] || 0); if (Math.abs(ecart) > 1e-9) out[k] = increment(ecart); }
+  return out;
+}
+// Repli quand l'état précédent d'un passage est introuvable : recalcul complet, sans bloquer la saisie.
+// Si lui aussi échoue, la réconciliation du tableau de bord (statsGlobalesTournee) corrigera l'écart.
+function recalculerEnArrierePlan(secteurId) {
+  // Hors ligne, un recalcul partirait d'un cache incomplet et écraserait de bons totaux : on laisse la
+  // réconciliation du tableau de bord s'en charger.
+  if (!isOnline()) return;
+  recalculerTotauxSecteur(secteurId).catch(e => console.warn("Recalcul des totaux différé :", e?.message || e));
 }
 // ── Calendriers vendus hors secteur ──────────────────────────────
 // Vente à une personne qui n'habite aucun secteur de la tournée (famille,
@@ -2134,9 +2254,12 @@ async function ajouterVenteHorsSecteur({ equipeId, equipeNom, adresse="", statut
   if (!equipeId) throw new Error("equipeId obligatoire");
   if (statut!==STATUT_PASSAGE.DON && statut!==STATUT_PASSAGE.OFFERT) throw new Error("Une vente hors secteur est un don ou un calendrier offert");
   if (statut===STATUT_PASSAGE.DON && !(Number(montant)>0)) throw new Error("Montant requis pour un don");
-  // La caserne vient de l'équipe elle-même (source de vérité), comme pour un secteur.
-  const equipe = await fsGet(COLLECTIONS.EQUIPES, equipeId);
-  const organisationId = equipe?.organisationId || ORGANISATION_ACTUELLE;
+  // La caserne est celle de la session ; à défaut, celle de l'équipe elle-même.
+  let organisationId = organisationCourante();
+  if (!organisationId) {
+    const equipe = await fsGetRapide(COLLECTIONS.EQUIPES, equipeId).catch(() => null);
+    organisationId = equipe?.organisationId || ORGANISATION_ACTUELLE;
+  }
   return fsAdd(COLLECTIONS.PASSAGES, {
     organisationId,
     secteurId:null, horsSecteur:true, equipeId, equipeNom, adresse:adresse||"", statut,
@@ -2155,14 +2278,13 @@ async function supprimerVenteHorsSecteur(passageId) {
   await fsDelete(COLLECTIONS.PASSAGES, passageId);
 }
 async function marquerRelance(passageId, secteurId) {
-  await fsUpdate(COLLECTIONS.PASSAGES, passageId, { aRelancer:true, statut:STATUT_PASSAGE.RELANCE });
-  await recalculerTotauxSecteur(secteurId);
+  await modifierPassage(passageId, { aRelancer:true, statut:STATUT_PASSAGE.RELANCE, secteurId });
 }
 // Vérifie si une adresse a déjà été saisie dans ce secteur (anti-doublon binôme)
 // Retourne le passage existant le plus récent, ou null
 async function verifierDoublonAdresse(secteurId, adresse) {
   if (!adresse || !adresse.trim()) return null;
-  const passages = await fsQuery(COLLECTIONS.PASSAGES, where("secteurId","==",secteurId));
+  const passages = await fsQueryRapide(COLLECTIONS.PASSAGES, where("secteurId","==",secteurId));   // cache si le serveur tarde
   const norm = (s) => (s||"").toLowerCase().replace(/[^a-z0-9]/g, "");
   const cible = norm(adresse);
   if (!cible) return null;
@@ -2171,18 +2293,40 @@ async function verifierDoublonAdresse(secteurId, adresse) {
   return matches.sort((a,b)=>(b.datePassage||"").localeCompare(a.datePassage||""))[0];
 }
 
+// Modification d'un passage : le passage et l'écart de ses contributions (voir contributionPassage) sont
+// écrits dans le même lot atomique ; l'état précédent est lu dans le cache (déjà tenu à jour par les
+// écouteurs de l'équipier), sans attendre le serveur.
 async function modifierPassage(passageId, data) {
-  const { secteurId, ...champs } = data;
-  await fsUpdate(COLLECTIONS.PASSAGES, passageId, champs);
-  if (secteurId) await recalculerTotauxSecteur(secteurId);
+  const { secteurId: secteurIdFourni, ...champs } = data;
+  const avant = await fsGetRapide(COLLECTIONS.PASSAGES, passageId).catch(() => null);
+  const secteurId = (avant && avant.secteurId) || secteurIdFourni;
+  if (!avant) {
+    await fsUpdate(COLLECTIONS.PASSAGES, passageId, champs);
+    if (secteurId) recalculerEnArrierePlan(secteurId);
+    return;
+  }
+  const lot = fsLot();
+  lot.modifier(COLLECTIONS.PASSAGES, passageId, champs);
+  const incr = secteurId ? incrementsTotaux(avant, { ...avant, ...champs }) : {};
+  if (Object.keys(incr).length) lot.modifier(COLLECTIONS.SECTEURS, secteurId, incr);
+  await lot.valider();
 }
 
 async function supprimerPassage(passageId, secteurId) {
-  await fsDelete(COLLECTIONS.PASSAGES, passageId);
-  await recalculerTotauxSecteur(secteurId);
+  const avant = await fsGetRapide(COLLECTIONS.PASSAGES, passageId).catch(() => null);
+  const sid = (avant && avant.secteurId) || secteurId;
+  const lot = fsLot();
+  lot.supprimer(COLLECTIONS.PASSAGES, passageId);
+  // Un passage déjà supprimé (double appui, autre équipier) n'est pas décompté une seconde fois
+  const incr = (avant && sid) ? incrementsTotaux(avant, null) : {};
+  if (Object.keys(incr).length) lot.modifier(COLLECTIONS.SECTEURS, sid, incr);
+  await lot.valider();
+  if (!avant && sid) recalculerEnArrierePlan(sid);
 }
-async function passagesDuSecteur(secteurId) {
-  const passages = await fsQuery(COLLECTIONS.PASSAGES, where("secteurId","==",secteurId));
+// rapide : lecture avec repli sur le cache, pour les recherches faites avant une écriture sur le terrain
+async function passagesDuSecteur(secteurId, { rapide = false } = {}) {
+  const lire = rapide ? fsQueryRapide : fsQuery;
+  const passages = await lire(COLLECTIONS.PASSAGES, where("secteurId","==",secteurId));
   return passages.sort((a,b)=>(a.datePassage||"").localeCompare(b.datePassage||""));
 }
 async function passagesDeLEquipe(equipeId) {
@@ -2236,7 +2380,49 @@ async function statsGlobalesTournee() {
   const nbSecteursTermines = secteurs.filter(s=>s.statut==="termine").length;
   const nbSecteursTotal = secteurs.length;
   const avancement = nbSecteursTotal>0 ? Math.round((nbSecteursTermines/nbSecteursTotal)*100) : 0;
-  return { totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe };
+  const ecartsTotaux = ecartsTotauxSecteurs(secteurs, passages);
+  return { totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe, ecartsTotaux };
+}
+
+// ── Réconciliation des totaux de secteur ─────────────────────────
+// Les totaux stockés sur chaque secteur sont mis à jour par incréments à chaque saisie. Un écart reste
+// possible (suppression simultanée du même passage par deux équipiers, saisie faite avant ce
+// mécanisme, passage modifié alors que son état précédent était introuvable) : on le détecte en
+// recomptant les passages, que l'admin charge de toute façon pour le tableau de bord.
+// Rend [{ id, nom, totaux }] pour les seuls secteurs dont les totaux stockés diffèrent.
+function ecartsTotauxSecteurs(secteurs, passages) {
+  const attendus = {};
+  for (const p of passages) {
+    if (!p.secteurId) continue;                       // vente hors secteur : aucun secteur
+    const t = attendus[p.secteurId] || (attendus[p.secteurId] = Object.fromEntries(CHAMPS_TOTAUX.map(k => [k, 0])));
+    const c = contributionPassage(p);
+    for (const k of CHAMPS_TOTAUX) t[k] += c[k];
+  }
+  const ecarts = [];
+  for (const s of secteurs) {
+    const totaux = attendus[s.id] || Object.fromEntries(CHAMPS_TOTAUX.map(k => [k, 0]));
+    const different = CHAMPS_TOTAUX.some(k => Math.abs(Number(s[k] || 0) - totaux[k]) > (k === "totalCollecte" ? 0.005 : 0));
+    if (different) ecarts.push({ id: s.id, nom: s.nom, totaux: { ...totaux, totalCollecte: Math.round(totaux.totalCollecte * 100) / 100 } });
+  }
+  return ecarts;
+}
+// Corrige les secteurs en écart (appelée par le tableau de bord admin). Les passages et les secteurs de
+// statsGlobalesTournee sont lus à quelques instants d'écart : une saisie qui tombe entre les deux
+// ressemble à un écart sans en être un. On attend donc, puis on relit chaque secteur et ses passages et on
+// ne réécrit que si l'écart est toujours là. Rend le nombre de secteurs corrigés.
+async function corrigerTotauxSecteurs(ecarts, { attenteMs = 3000 } = {}) {
+  if (!ecarts.length) return 0;
+  await new Promise(r => setTimeout(r, attenteMs));
+  let corriges = 0;
+  for (const e of ecarts) {
+    const [passages, secteur] = await Promise.all([
+      fsQuery(COLLECTIONS.PASSAGES, where("secteurId","==",e.id)), fsGet(COLLECTIONS.SECTEURS, e.id)
+    ]);
+    if (!secteur) continue;
+    const [ecart] = ecartsTotauxSecteurs([secteur], passages);
+    if (ecart) { await fsUpdate(COLLECTIONS.SECTEURS, e.id, ecart.totaux); corriges++; }
+  }
+  return corriges;
 }
 
 async function lireConfig() { return fsGet(COLLECTIONS.CONFIG, "tournee"); }
@@ -4349,22 +4535,53 @@ function libellePassage(n) {
 }
 
 // ── Badge état réseau (hors-ligne / synchro) ──────────────────
+// Texte de la pastille : état du réseau + nombre de saisies enregistrées sur l'appareil et pas encore
+// confirmées par le serveur (« ⏳ 2 en attente »), pour que l'équipier sache que rien n'est perdu.
+function libelleReseau() {
+  const n = nbEcrituresEnAttente();
+  return `${isOnline() ? '🟢 En ligne' : '🔴 Hors-ligne'}${n > 0 ? ` · ⏳ ${n}` : ''}`;
+}
+function infobulleReseau() {
+  const n = nbEcrituresEnAttente();
+  return n > 0 ? `${n} saisie${n > 1 ? "s" : ""} enregistrée${n > 1 ? "s" : ""} sur cet appareil, pas encore confirmée${n > 1 ? "s" : ""} par le serveur` : "";
+}
 function renderNetworkBadge() {
-  return `<span id="network-badge" class="network-badge ${isOnline() ? 'network-badge--online' : 'network-badge--offline'}">${isOnline() ? '🟢 En ligne' : '🔴 Hors-ligne'}</span>`;
+  return `<span id="network-badge" class="network-badge ${isOnline() ? 'network-badge--online' : 'network-badge--offline'}" title="${h(infobulleReseau())}">${libelleReseau()}</span>`;
 }
 
 function bindNetworkBadge() {
   const badge = document.getElementById("network-badge");
   if (!badge) return () => {};
-  return onNetworkChange((online) => {
+  const rafraichir = () => {
     const b = document.getElementById("network-badge");
     if (!b) return;
-    b.textContent = online ? '🟢 En ligne' : '🔴 Hors-ligne';
-    b.className = `network-badge ${online ? 'network-badge--online' : 'network-badge--offline'}`;
+    b.textContent = libelleReseau();
+    b.title = infobulleReseau();
+    b.className = `network-badge ${isOnline() ? 'network-badge--online' : 'network-badge--offline'}`;
+  };
+  const desabonnerReseau = onNetworkChange((online) => {
+    rafraichir();
     if (online) toast("Connexion rétablie — synchronisation en cours…", "success");
-    else toast("Mode hors-ligne — tes saisies seront synchronisées au retour du réseau", "info");
+    else toast("Mode hors-ligne — tes saisies sont gardées sur ton téléphone et seront envoyées au retour du réseau", "info");
   });
+  const desabonnerAttente = surEcrituresEnAttente(rafraichir);
+  return () => { desabonnerReseau(); desabonnerAttente(); };
 }
+
+// Suivi des écritures (une seule fois pour toute l'appli) : la saisie rend la main sans attendre le serveur
+// (voir ecritureLocale, firebase.js), donc deux cas à signaler à l'équipier.
+let _dernierAvisEcritureLente = 0;
+surEcritureLente(() => {
+  if (Date.now() - _dernierAvisEcritureLente < 30000) return;
+  _dernierAvisEcritureLente = Date.now();
+  toast("Enregistré sur cet appareil — envoi dès que le réseau le permet", "info");
+});
+surEchecEcriture((e) => {
+  // Refus du serveur après que l'écran ait déjà confirmé (règles Firestore, document supprimé entre-temps…)
+  console.error("Écriture refusée par le serveur :", e);
+  const motif = e?.code === "permission-denied" ? "permission refusée" : (e?.code || e?.message || "erreur inconnue");
+  toast(`⚠️ Une saisie n'a pas pu être enregistrée sur le serveur (${motif}). Vérifie-la et refais-la si besoin.`, "error");
+});
 
 function stopUnsubs() {
   APP.unsubs.forEach(fn => fn && fn());
@@ -4903,6 +5120,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.16", date: "2026-11-16", texte: "Saisie plus fiable avec un réseau faible ou absent : l'écran n'attend plus la confirmation du serveur pour valider un passage (fini le bouton bloqué sur « … » et les doublons en retapant). Le passage est gardé sur l'appareil et envoyé dès que le réseau revient ; la pastille indique « ⏳ N » saisies en attente d'envoi, et une alerte prévient si le serveur en refuse une. Les totaux de chaque secteur sont désormais mis à jour de façon atomique, sans risque d'erreur quand deux équipiers saisissent en même temps, et le tableau de bord corrige tout seul un éventuel écart." },
   { version: "1.15", date: "2026-11-16", texte: "Côté équipier : sous l'objectif d'un secteur (« 🎯 Objectif du secteur X / N calendriers »), un compteur séparé « 🧭 + N hors secteur » indique les calendriers vendus hors secteur par l'équipe. Ils ne sont pas comptés dans l'objectif du secteur, puisqu'ils n'appartiennent à aucun secteur." },
   { version: "1.14", date: "2026-11-13", texte: "Formulaire « Modifier le secteur » : sous « Rues / zones », l'appli indique combien de boîtes aux lettres sont couvertes, signale les rues qu'elle ne reconnaît pas dans la base d'adresses (le nom du fond de carte diffère parfois) et propose en un clic la rue la plus proche, avec ses numéros conservés. Elle repère aussi les doublons (même rue écrite de deux façons) et permet de retirer la ligne en trop." },
   { version: "1.13", date: "2026-11-13", texte: "Adresses en double : la base d'adresses rangeait parfois les mêmes maisons sous deux noms de rue (« Clos des Lilas » et « Résidence le Clos des Lilas », « Clos des Vallons » et « Rue Clos des Vallons »…). Ces rues jumelles sont maintenant reconnues : un seul nom suffit dans un secteur, et chaque maison n'est comptée qu'une fois (213 adresses en double retirées, le nombre de boîtes de certains secteurs baisse en conséquence, surtout Houlbec-Cocherel)." },
@@ -5155,6 +5373,16 @@ async function renderDashboard() {
       fsGetAllOrg(COLLECTIONS.PASSAGES)
     ]);
     const badgesParEquipe = calculerBadges(stats.parEquipe, secteursActuels, passagesActuels);
+
+    // Réparation silencieuse des totaux de secteur si un écart persiste (voir corrigerTotauxSecteurs :
+    // double contrôle avant d'écrire). Au plus une fois par minute, jamais deux en parallèle.
+    if (stats.ecartsTotaux?.length && !APP._reconcilEnCours && Date.now() - (APP._reconcilT || 0) > 60000) {
+      APP._reconcilEnCours = true; APP._reconcilT = Date.now();
+      corrigerTotauxSecteurs(stats.ecartsTotaux)
+        .then(n => { if (n) toast(`Totaux de ${n} secteur${n > 1 ? "s" : ""} recalculé${n > 1 ? "s" : ""}`, "info"); })
+        .catch(e => console.warn("Réconciliation des totaux :", e?.message || e))
+        .finally(() => { APP._reconcilEnCours = false; });
+    }
 
     // Détection de nouveaux badges débloqués
     if (APP._badgesCache) {
@@ -6368,7 +6596,7 @@ async function chargerRelances() {
 
 // Traiter une relance : don, refus, ou toujours absent
 window.traiterRelance = async (passageId, secteurId) => {
-  const passages = await passagesDuSecteur(secteurId);
+  const passages = await passagesDuSecteur(secteurId, { rapide: true });
   const p = passages.find(x => x.id === passageId);
   if (!p) { toast("Passage introuvable", "error"); return; }
 
@@ -7894,7 +8122,7 @@ async function renderTerrainPassages() {
   const secteurId = sessionStorage.getItem("secteurActif");
   if (!secteurId) { naviguer("#terrain"); return; }
 
-  const secteur = await lireSecteur(secteurId);
+  const secteur = await lireSecteur(secteurId, { rapide: true });
   if (!secteur) { naviguer("#terrain"); return; }
 
   document.getElementById("main").innerHTML = `
@@ -7982,7 +8210,7 @@ async function renderTerrainPassages() {
   // Restaurer les raccourcis depuis le dernier passage de l'équipe sur ce secteur
   (async () => {
     try {
-      const passages = await passagesDuSecteur(secteurId);
+      const passages = await passagesDuSecteur(secteurId, { rapide: true });
       const dernier = passages
         .filter(p => p.equipeId === APP.equipeId && p.adresse)
         .sort((a,b) => (b.datePassage||'').localeCompare(a.datePassage||''))[0];
@@ -8293,7 +8521,7 @@ async function renderTerrainPassages() {
 // ════════════════════════════════════════════════════════════
 
 window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
-  const passages = await passagesDuSecteur(secteurId);
+  const passages = await passagesDuSecteur(secteurId, { rapide: true });
   const p = passages.find(x => x.id === passageId);
   if (!p) { toast("Passage introuvable", "error"); return; }
 
@@ -9027,8 +9255,8 @@ async function rafraichirModeRue() {
   if (!secteurId) return;
   try {
     const [secteur, passages] = await Promise.all([
-      lireSecteur(secteurId),
-      passagesDuSecteur(secteurId)
+      lireSecteur(secteurId, { rapide: true }),
+      passagesDuSecteur(secteurId, { rapide: true })
     ]);
     if (secteur) majModeRue(secteur, passages);
   } catch(e) { console.warn("Rafraîchissement mode rue:", e); }
@@ -9042,7 +9270,7 @@ async function surlignerRueSurCarte(rue) {
 
   const secteurId = sessionStorage.getItem("secteurActif");
   if (!secteurId) return;
-  const secteur = await lireSecteur(secteurId);
+  const secteur = await lireSecteur(secteurId, { rapide: true });
   if (!secteur) return;
 
   const infoRue = ruesDuSecteur(secteur).find(r => r.rue === rue);
@@ -9088,11 +9316,11 @@ window.quitterRue = () => {
 window.saisirNumero = async (numero, rue) => {
   const secteurId = sessionStorage.getItem("secteurActif");
   if (!secteurId) return;
-  const secteur = await lireSecteur(secteurId);
+  const secteur = await lireSecteur(secteurId, { rapide: true });
   const adresse = `${numero} ${rue}`;
 
   // Vérifier s'il existe déjà un passage à cette adresse
-  const passages = await passagesDuSecteur(secteurId);
+  const passages = await passagesDuSecteur(secteurId, { rapide: true });
   const existant = passages.find(p => normAdr(p.adresse) === normAdr(adresse));
 
   // Ce numéro vient-il d'un ajout manuel ?
@@ -9250,7 +9478,7 @@ window.mnAnnulerFusion = async (principale) => {
 window.mnNote = async () => {
   const ctx = window._mnCtx;
   if (!ctx) return;
-  const secteur = await lireSecteur(ctx.secteurId);
+  const secteur = await lireSecteur(ctx.secteurId, { rapide: true });
   const actuelle = lireNoteAdresse(secteur, ctx.adresse);
 
   const v = prompt(
@@ -9289,7 +9517,7 @@ window.mnMode = (mode) => {
 window.mnSupprimer = async (passageId, secteurId) => {
   if (!confirm("Supprimer ce passage ?")) return;
   try {
-    const liste = await passagesDuSecteur(secteurId);
+    const liste = await passagesDuSecteur(secteurId, { rapide: true });
     const avant = liste.find(x => x.id === passageId) || null;
     tracer(ACTIONS.SUPPRESSION, { avant, contexte: "mode rue", auteur: auteurCourant() });
     await supprimerPassage(passageId, secteurId);
@@ -9385,7 +9613,7 @@ window.annulerDerniereSaisie = async () => {
 
   // Retrouver le passage le plus récent de ce secteur pour cette équipe
   try {
-    const passages = await passagesDuSecteur(d.secteurId);
+    const passages = await passagesDuSecteur(d.secteurId, { rapide: true });
     const miens = passages
       .filter(p => p.equipeId === APP.equipeId)
       .sort((a, b) => (b.datePassage || '').localeCompare(a.datePassage || ''));

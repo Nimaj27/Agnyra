@@ -1,5 +1,5 @@
 // tournee.js — Logique métier tournée calendriers
-import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetAll, fsGetAllOrg, fsQuery, fsListen, fsListenOrg, where, serverTimestamp } from "./firebase.js";
+import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsLot, fsGet, fsGetRapide, fsGetAll, fsGetAllOrg, fsQuery, fsQueryRapide, fsListen, fsListenOrg, organisationCourante, increment, isOnline, where, serverTimestamp } from "./firebase.js";
 import { recalculerTotauxSecteur } from "./secteurs.js";
 
 export const STATUT_PASSAGE = { DON:"don", OFFERT:"offert", REFUSE:"refuse", ABSENT:"absent", RELANCE:"relance" };
@@ -85,21 +85,61 @@ export async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, 
   if (!secteurId||!equipeId) throw new Error("secteurId et equipeId obligatoires");
   if (!Object.values(STATUT_PASSAGE).includes(statut)) throw new Error("Statut invalide");
   if (statut===STATUT_PASSAGE.DON && montant<=0) throw new Error("Montant requis pour un don");
-  // La caserne du passage vient du secteur lui-même (source de vérité),
-  // pas d'une valeur fixe ni d'un champ fourni par l'appelant.
-  const secteur = await fsGet(COLLECTIONS.SECTEURS, secteurId);
-  const organisationId = secteur?.organisationId || ORGANISATION_ACTUELLE;
+  // La caserne du passage est celle de la session (les écrans ne proposent que les secteurs de la caserne
+  // courante) ; à défaut, celle du secteur lui-même, lue sans attendre un serveur lent ou absent.
+  let organisationId = organisationCourante();
+  if (!organisationId) {
+    const secteur = await fsGetRapide(COLLECTIONS.SECTEURS, secteurId).catch(() => null);
+    organisationId = secteur?.organisationId || ORGANISATION_ACTUELLE;
+  }
   // Le statut "offert" ne requiert aucun montant (calendrier donné sans contrepartie)
-  const passage = await fsAdd(COLLECTIONS.PASSAGES, {
+  const donnees = {
     organisationId,
     secteurId, equipeId, equipeNom, adresse:adresse||"", statut,
     montant: statut===STATUT_PASSAGE.DON ? Number(montant) : 0,
     modePaiement: statut===STATUT_PASSAGE.DON ? modePaiement : null,
     nomDonateur, note, saisiPar, aRelancer: statut===STATUT_PASSAGE.ABSENT || statut===STATUT_PASSAGE.RELANCE, datePassage: new Date().toISOString(),
     nbPassages: 1
-  });
-  await recalculerTotauxSecteur(secteurId);
-  return passage;
+  };
+  // Passage et totaux du secteur dans UN lot atomique, totaux par incréments : aucune lecture avant
+  // d'écrire, donc pas de course entre deux équipiers qui saisissent en même temps, et le lot est rejoué
+  // tel quel à la reconnexion (un recalcul fait hors ligne partirait d'un cache incomplet).
+  const lot = fsLot();
+  const id = lot.ajouter(COLLECTIONS.PASSAGES, donnees);
+  lot.modifier(COLLECTIONS.SECTEURS, secteurId, incrementsTotaux(null, donnees));
+  await lot.valider();
+  return { id };
+}
+
+// ── Totaux d'un secteur : contributions et incréments ────────────
+// Chaque passage du secteur contribue à : collecte (dons), foyers traités (don, offert, refus), absents
+// (absent, à relancer), calendriers (don, offert) et nombre de passages. Mêmes règles que
+// recalculerTotauxSecteur (secteurs.js), qui sert de réparation.
+export function contributionPassage(p) {
+  const s = p && p.statut;
+  return {
+    totalCollecte:   s === STATUT_PASSAGE.DON ? Number(p.montant || 0) : 0,
+    nbFoyersVisites: (s === STATUT_PASSAGE.DON || s === STATUT_PASSAGE.OFFERT || s === STATUT_PASSAGE.REFUSE) ? 1 : 0,
+    nbFoyersAbsents: (s === STATUT_PASSAGE.ABSENT || s === STATUT_PASSAGE.RELANCE) ? 1 : 0,
+    nbCalendriers:   (s === STATUT_PASSAGE.DON || s === STATUT_PASSAGE.OFFERT) ? 1 : 0,
+    nbFoyersTotal:   p ? 1 : 0
+  };
+}
+const CHAMPS_TOTAUX = Object.keys(contributionPassage({}));
+// { champ: increment(écart) } pour les seuls champs qui changent entre deux états d'un passage
+// (avant = null : création ; apres = null : suppression)
+function incrementsTotaux(avant, apres) {
+  const a = contributionPassage(avant), b = contributionPassage(apres), out = {};
+  for (const k of CHAMPS_TOTAUX) { const ecart = (b[k] || 0) - (a[k] || 0); if (Math.abs(ecart) > 1e-9) out[k] = increment(ecart); }
+  return out;
+}
+// Repli quand l'état précédent d'un passage est introuvable : recalcul complet, sans bloquer la saisie.
+// Si lui aussi échoue, la réconciliation du tableau de bord (statsGlobalesTournee) corrigera l'écart.
+function recalculerEnArrierePlan(secteurId) {
+  // Hors ligne, un recalcul partirait d'un cache incomplet et écraserait de bons totaux : on laisse la
+  // réconciliation du tableau de bord s'en charger.
+  if (!isOnline()) return;
+  recalculerTotauxSecteur(secteurId).catch(e => console.warn("Recalcul des totaux différé :", e?.message || e));
 }
 // ── Calendriers vendus hors secteur ──────────────────────────────
 // Vente à une personne qui n'habite aucun secteur de la tournée (famille,
@@ -111,9 +151,12 @@ export async function ajouterVenteHorsSecteur({ equipeId, equipeNom, adresse="",
   if (!equipeId) throw new Error("equipeId obligatoire");
   if (statut!==STATUT_PASSAGE.DON && statut!==STATUT_PASSAGE.OFFERT) throw new Error("Une vente hors secteur est un don ou un calendrier offert");
   if (statut===STATUT_PASSAGE.DON && !(Number(montant)>0)) throw new Error("Montant requis pour un don");
-  // La caserne vient de l'équipe elle-même (source de vérité), comme pour un secteur.
-  const equipe = await fsGet(COLLECTIONS.EQUIPES, equipeId);
-  const organisationId = equipe?.organisationId || ORGANISATION_ACTUELLE;
+  // La caserne est celle de la session ; à défaut, celle de l'équipe elle-même.
+  let organisationId = organisationCourante();
+  if (!organisationId) {
+    const equipe = await fsGetRapide(COLLECTIONS.EQUIPES, equipeId).catch(() => null);
+    organisationId = equipe?.organisationId || ORGANISATION_ACTUELLE;
+  }
   return fsAdd(COLLECTIONS.PASSAGES, {
     organisationId,
     secteurId:null, horsSecteur:true, equipeId, equipeNom, adresse:adresse||"", statut,
@@ -132,14 +175,13 @@ export async function supprimerVenteHorsSecteur(passageId) {
   await fsDelete(COLLECTIONS.PASSAGES, passageId);
 }
 export async function marquerRelance(passageId, secteurId) {
-  await fsUpdate(COLLECTIONS.PASSAGES, passageId, { aRelancer:true, statut:STATUT_PASSAGE.RELANCE });
-  await recalculerTotauxSecteur(secteurId);
+  await modifierPassage(passageId, { aRelancer:true, statut:STATUT_PASSAGE.RELANCE, secteurId });
 }
 // Vérifie si une adresse a déjà été saisie dans ce secteur (anti-doublon binôme)
 // Retourne le passage existant le plus récent, ou null
 export async function verifierDoublonAdresse(secteurId, adresse) {
   if (!adresse || !adresse.trim()) return null;
-  const passages = await fsQuery(COLLECTIONS.PASSAGES, where("secteurId","==",secteurId));
+  const passages = await fsQueryRapide(COLLECTIONS.PASSAGES, where("secteurId","==",secteurId));   // cache si le serveur tarde
   const norm = (s) => (s||"").toLowerCase().replace(/[^a-z0-9]/g, "");
   const cible = norm(adresse);
   if (!cible) return null;
@@ -148,18 +190,40 @@ export async function verifierDoublonAdresse(secteurId, adresse) {
   return matches.sort((a,b)=>(b.datePassage||"").localeCompare(a.datePassage||""))[0];
 }
 
+// Modification d'un passage : le passage et l'écart de ses contributions (voir contributionPassage) sont
+// écrits dans le même lot atomique ; l'état précédent est lu dans le cache (déjà tenu à jour par les
+// écouteurs de l'équipier), sans attendre le serveur.
 export async function modifierPassage(passageId, data) {
-  const { secteurId, ...champs } = data;
-  await fsUpdate(COLLECTIONS.PASSAGES, passageId, champs);
-  if (secteurId) await recalculerTotauxSecteur(secteurId);
+  const { secteurId: secteurIdFourni, ...champs } = data;
+  const avant = await fsGetRapide(COLLECTIONS.PASSAGES, passageId).catch(() => null);
+  const secteurId = (avant && avant.secteurId) || secteurIdFourni;
+  if (!avant) {
+    await fsUpdate(COLLECTIONS.PASSAGES, passageId, champs);
+    if (secteurId) recalculerEnArrierePlan(secteurId);
+    return;
+  }
+  const lot = fsLot();
+  lot.modifier(COLLECTIONS.PASSAGES, passageId, champs);
+  const incr = secteurId ? incrementsTotaux(avant, { ...avant, ...champs }) : {};
+  if (Object.keys(incr).length) lot.modifier(COLLECTIONS.SECTEURS, secteurId, incr);
+  await lot.valider();
 }
 
 export async function supprimerPassage(passageId, secteurId) {
-  await fsDelete(COLLECTIONS.PASSAGES, passageId);
-  await recalculerTotauxSecteur(secteurId);
+  const avant = await fsGetRapide(COLLECTIONS.PASSAGES, passageId).catch(() => null);
+  const sid = (avant && avant.secteurId) || secteurId;
+  const lot = fsLot();
+  lot.supprimer(COLLECTIONS.PASSAGES, passageId);
+  // Un passage déjà supprimé (double appui, autre équipier) n'est pas décompté une seconde fois
+  const incr = (avant && sid) ? incrementsTotaux(avant, null) : {};
+  if (Object.keys(incr).length) lot.modifier(COLLECTIONS.SECTEURS, sid, incr);
+  await lot.valider();
+  if (!avant && sid) recalculerEnArrierePlan(sid);
 }
-export async function passagesDuSecteur(secteurId) {
-  const passages = await fsQuery(COLLECTIONS.PASSAGES, where("secteurId","==",secteurId));
+// rapide : lecture avec repli sur le cache, pour les recherches faites avant une écriture sur le terrain
+export async function passagesDuSecteur(secteurId, { rapide = false } = {}) {
+  const lire = rapide ? fsQueryRapide : fsQuery;
+  const passages = await lire(COLLECTIONS.PASSAGES, where("secteurId","==",secteurId));
   return passages.sort((a,b)=>(a.datePassage||"").localeCompare(b.datePassage||""));
 }
 export async function passagesDeLEquipe(equipeId) {
@@ -213,7 +277,49 @@ export async function statsGlobalesTournee() {
   const nbSecteursTermines = secteurs.filter(s=>s.statut==="termine").length;
   const nbSecteursTotal = secteurs.length;
   const avancement = nbSecteursTotal>0 ? Math.round((nbSecteursTermines/nbSecteursTotal)*100) : 0;
-  return { totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe };
+  const ecartsTotaux = ecartsTotauxSecteurs(secteurs, passages);
+  return { totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe, ecartsTotaux };
+}
+
+// ── Réconciliation des totaux de secteur ─────────────────────────
+// Les totaux stockés sur chaque secteur sont mis à jour par incréments à chaque saisie. Un écart reste
+// possible (suppression simultanée du même passage par deux équipiers, saisie faite avant ce
+// mécanisme, passage modifié alors que son état précédent était introuvable) : on le détecte en
+// recomptant les passages, que l'admin charge de toute façon pour le tableau de bord.
+// Rend [{ id, nom, totaux }] pour les seuls secteurs dont les totaux stockés diffèrent.
+export function ecartsTotauxSecteurs(secteurs, passages) {
+  const attendus = {};
+  for (const p of passages) {
+    if (!p.secteurId) continue;                       // vente hors secteur : aucun secteur
+    const t = attendus[p.secteurId] || (attendus[p.secteurId] = Object.fromEntries(CHAMPS_TOTAUX.map(k => [k, 0])));
+    const c = contributionPassage(p);
+    for (const k of CHAMPS_TOTAUX) t[k] += c[k];
+  }
+  const ecarts = [];
+  for (const s of secteurs) {
+    const totaux = attendus[s.id] || Object.fromEntries(CHAMPS_TOTAUX.map(k => [k, 0]));
+    const different = CHAMPS_TOTAUX.some(k => Math.abs(Number(s[k] || 0) - totaux[k]) > (k === "totalCollecte" ? 0.005 : 0));
+    if (different) ecarts.push({ id: s.id, nom: s.nom, totaux: { ...totaux, totalCollecte: Math.round(totaux.totalCollecte * 100) / 100 } });
+  }
+  return ecarts;
+}
+// Corrige les secteurs en écart (appelée par le tableau de bord admin). Les passages et les secteurs de
+// statsGlobalesTournee sont lus à quelques instants d'écart : une saisie qui tombe entre les deux
+// ressemble à un écart sans en être un. On attend donc, puis on relit chaque secteur et ses passages et on
+// ne réécrit que si l'écart est toujours là. Rend le nombre de secteurs corrigés.
+export async function corrigerTotauxSecteurs(ecarts, { attenteMs = 3000 } = {}) {
+  if (!ecarts.length) return 0;
+  await new Promise(r => setTimeout(r, attenteMs));
+  let corriges = 0;
+  for (const e of ecarts) {
+    const [passages, secteur] = await Promise.all([
+      fsQuery(COLLECTIONS.PASSAGES, where("secteurId","==",e.id)), fsGet(COLLECTIONS.SECTEURS, e.id)
+    ]);
+    if (!secteur) continue;
+    const [ecart] = ecartsTotauxSecteurs([secteur], passages);
+    if (ecart) { await fsUpdate(COLLECTIONS.SECTEURS, e.id, ecart.totaux); corriges++; }
+  }
+  return corriges;
 }
 
 export async function lireConfig() { return fsGet(COLLECTIONS.CONFIG, "tournee"); }
