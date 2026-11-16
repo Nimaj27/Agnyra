@@ -427,6 +427,14 @@ l'avancement ni `recalculerTotauxSecteur`). Seuls `don` et `offert` ont un sens.
   nom et lieu facultatifs (`nomDonateur`/`adresse`), liste de ses ventes avec suppression.
 - Admin : Passages → filtre « 🧭 Ventes hors secteur », colonne Secteur = « Hors secteur », bouton 🗑️ par ligne ;
   le tableau de bord affiche leur nombre et montant sous « Foyers visités » ; l'export CSV indique « Hors secteur ».
+- **Objectifs** (décision 16/11, « compteur séparé ») : l'objectif en euros (Config → `config.objectif`, utilisé
+  seulement dans le PDF du bilan) est calculé sur `totalCollecte`, donc **inclut** les ventes hors secteur. L'objectif de
+  calendriers d'un secteur (`objectifCalendriers`, affiché « X / N » sur la page du secteur côté équipier) **ne les inclut
+  pas** : X = dons + offerts des passages du secteur, et une vente hors secteur n'a pas de secteur. Sous cette ligne,
+  `afficherCompteurHorsSecteur()` (`app.js`, appelée par `majStatsTerrain`) affiche en plus « 🧭 + N hors secteur » (ventes
+  de l'équipe, non comptées dans l'objectif) ; valeur gardée 20 s (`APP._hsCompteur`), invalidée à la saisie/suppression
+  d'une vente. Le palier de progression (Débutant → Champion) ne dépend que des secteurs terminés. Le compteur
+  « calendriers en poche » (stock, `localStorage`) ne déduit pas non plus les ventes hors secteur.
 - La suppression d'une vente par l'équipier suppose la règle `delete` ouverte sur `passages` (voir « Suppression
   d'un passage par un équipier » plus bas) ; tant que les règles ne sont pas republiées, il reçoit un refus explicite
   et l'admin peut la supprimer depuis Passages.
