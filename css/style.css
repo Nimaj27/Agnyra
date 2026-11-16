@@ -1044,6 +1044,8 @@ body {
 }
 .ts-objectif-lbl { font-size: .82rem; color: var(--orange); font-weight: 600; }
 .ts-objectif-val { font-size: .92rem; color: var(--orange); font-weight: 800; }
+/* Compteur séparé sous l'objectif : ventes hors secteur de l'équipe (non comptées dans l'objectif) */
+.ts-objectif-hs { margin: 4px 2px 0; font-size: .78rem; color: var(--ardoise-mid); }
 
 /* ── Compteur sur les cartes de secteur (accueil équipier) ──── */
 .terrain-secteur-reste { margin-top: var(--sp-2); }

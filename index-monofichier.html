@@ -1061,6 +1061,8 @@ body {
 }
 .ts-objectif-lbl { font-size: .82rem; color: var(--orange); font-weight: 600; }
 .ts-objectif-val { font-size: .92rem; color: var(--orange); font-weight: 800; }
+/* Compteur séparé sous l'objectif : ventes hors secteur de l'équipe (non comptées dans l'objectif) */
+.ts-objectif-hs { margin: 4px 2px 0; font-size: .78rem; color: var(--ardoise-mid); }
 
 /* ── Compteur sur les cartes de secteur (accueil équipier) ──── */
 .terrain-secteur-reste { margin-top: var(--sp-2); }
@@ -4901,6 +4903,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.15", date: "2026-11-16", texte: "Côté équipier : sous l'objectif d'un secteur (« 🎯 Objectif du secteur X / N calendriers »), un compteur séparé « 🧭 + N hors secteur » indique les calendriers vendus hors secteur par l'équipe. Ils ne sont pas comptés dans l'objectif du secteur, puisqu'ils n'appartiennent à aucun secteur." },
   { version: "1.14", date: "2026-11-13", texte: "Formulaire « Modifier le secteur » : sous « Rues / zones », l'appli indique combien de boîtes aux lettres sont couvertes, signale les rues qu'elle ne reconnaît pas dans la base d'adresses (le nom du fond de carte diffère parfois) et propose en un clic la rue la plus proche, avec ses numéros conservés. Elle repère aussi les doublons (même rue écrite de deux façons) et permet de retirer la ligne en trop." },
   { version: "1.13", date: "2026-11-13", texte: "Adresses en double : la base d'adresses rangeait parfois les mêmes maisons sous deux noms de rue (« Clos des Lilas » et « Résidence le Clos des Lilas », « Clos des Vallons » et « Rue Clos des Vallons »…). Ces rues jumelles sont maintenant reconnues : un seul nom suffit dans un secteur, et chaque maison n'est comptée qu'une fois (213 adresses en double retirées, le nombre de boîtes de certains secteurs baisse en conséquence, surtout Houlbec-Cocherel)." },
   { version: "1.12", date: "2026-11-13", texte: "Carte du tableau de bord : tous les secteurs s'affichent maintenant comme ceux de Pacy et Ménilles, avec leur contour et un point par adresse (au lieu du contour de toute la commune pour les secteurs seuls dans leur commune). Les adresses sans secteur apparaissent en gris dans toutes les communes, et la carte s'ouvre à un zoom où les points restent lisibles." },
@@ -7645,6 +7648,7 @@ window.hsEnregistrer = async () => {
       adresse: (document.getElementById("hs-lieu")?.value || "").trim(),
       saisiPar: APP.membre || ""
     });
+    APP._hsCompteur = null;   // le compteur « hors secteur » du bandeau d'objectif doit se relire
     toast(st === "don" ? `Vente hors secteur enregistrée (${formatMontant(montant)})` : "Calendrier offert enregistré", "success");
     // Prêt pour la saisie suivante
     window._hsStatut = null;
@@ -7690,6 +7694,7 @@ window.hsSupprimer = async (passageId) => {
     const avant = (window._hsVentes || []).find(v => v.id === passageId) || null;
     tracer(ACTIONS.SUPPRESSION, { avant, contexte: "hors secteur", auteur: auteurCourant() });
     await supprimerVenteHorsSecteur(passageId);
+    APP._hsCompteur = null;
     toast("Vente supprimée", "success");
     await hsRafraichirListe();
     chargerHorsSecteurEquipe();
@@ -8539,7 +8544,8 @@ function majStatsTerrain(secteur, passages) {
     <div class="ts-objectif">
       <span class="ts-objectif-lbl">🎯 Objectif du secteur</span>
       <span class="ts-objectif-val">${distribues} / ${secteur.objectifCalendriers} calendriers${distribues >= secteur.objectifCalendriers ? ' ✅' : ''}</span>
-    </div>` : ''}
+    </div>
+    <div id="ts-hs-obj" class="ts-objectif-hs hidden"></div>` : ''}
     <div class="ts-chiffres">
       <div class="ts-item">
         <span class="ts-val">${donsJour.length}${offertsJour.length > 0 ? `<small>+${offertsJour.length}🎁</small>` : ''}</span>
@@ -8555,6 +8561,29 @@ function majStatsTerrain(secteur, passages) {
       </div>
     </div>
   `;
+  afficherCompteurHorsSecteur();
+}
+
+// Compteur séparé sous l'objectif du secteur : calendriers vendus hors secteur par l'équipe.
+// Ils n'ont pas de secteur : ils ne sont pas comptés dans « X / N calendriers » (voir CLAUDE.md).
+// La valeur est gardée 20 s pour ne pas relire Firestore à chaque mise à jour des passages ;
+// la saisie ou la suppression d'une vente hors secteur l'invalide (APP._hsCompteur = null).
+async function afficherCompteurHorsSecteur() {
+  const el = document.getElementById("ts-hs-obj");
+  if (!el) return;
+  try {
+    const c = APP._hsCompteur;
+    if (!c || c.equipeId !== APP.equipeId || Date.now() - c.t > 20000) {
+      const ventes = await ventesHorsSecteurEquipe(APP.equipeId);
+      APP._hsCompteur = { equipeId: APP.equipeId, t: Date.now(), n: ventes.length };
+    }
+    const n = APP._hsCompteur.n;
+    const cible = document.getElementById("ts-hs-obj");   // l'encart a pu être redessiné pendant la lecture
+    if (cible && n > 0) {
+      cible.textContent = `🧭 + ${n} hors secteur · ventes de ton équipe, non comptées dans l'objectif`;
+      cible.classList.remove("hidden");
+    }
+  } catch (e) { /* hors connexion : le compteur n'apparaît pas, l'objectif reste affiché */ }
 }
 
 
