@@ -311,6 +311,47 @@ export function adressesCommune(commune) {
   return d.p.map(p => ({ lon: p[3], lat: p[2], numero: p[0], rue: d.r[p[1]] }));
 }
 
+// Adresses de la base qu'aucun secteur ne couvre, pour les communes qui ont au moins un secteur
+// (la carte du tableau de bord les dessine en gris). Une commune déléguée partage la base de sa
+// commune englobante : on ne passe qu'une fois par base. Rend [{ commune, rue, numero, lat, lon }],
+// `commune` étant le nom de la commune de la base.
+export function adressesSansSecteur(secteurs) {
+  const couvertes = new Set();
+  for (const s of secteurs) for (const [lon, lat] of pointsSecteur(s)) couvertes.add(`${cleBaseCommune(s.commune)}|${lon},${lat}`);
+  const vues = new Set(), liste = [];
+  for (const s of secteurs) {
+    const base = cleBaseCommune(s.commune);
+    if (!base || vues.has(base)) continue;
+    vues.add(base);
+    for (const a of adressesCommune(base)) {
+      if (!couvertes.has(`${base}|${a.lon},${a.lat}`)) liste.push({ commune: base, rue: a.rue, numero: a.numero, lat: a.lat, lon: a.lon });
+    }
+  }
+  return liste;
+}
+
+// Les mêmes adresses regroupées par rue, pour l'export CSV : [{ commune, rue, nb, nbTotal, numeros, ligneSecteur }].
+// `ligneSecteur` est la ligne à coller telle quelle dans « Rues / zones » d'un secteur : le nom de la rue, avec
+// ses numéros entre crochets quand le reste de la rue est déjà dans un secteur.
+export function ruesSansSecteur(secteurs) {
+  const groupes = new Map();
+  for (const a of adressesSansSecteur(secteurs)) {
+    const cle = `${a.commune}|${a.rue}`;
+    if (!groupes.has(cle)) groupes.set(cle, { commune: a.commune, rue: a.rue, numeros: [] });
+    groupes.get(cle).numeros.push(String(a.numero));
+  }
+  const totaux = new Map();                         // adresses de la base par commune|rue
+  for (const commune of new Set([...groupes.values()].map(g => g.commune))) {
+    for (const a of adressesCommune(commune)) totaux.set(`${commune}|${a.rue}`, (totaux.get(`${commune}|${a.rue}`) || 0) + 1);
+  }
+  const ordreNumeros = (x, y) => (parseInt(x, 10) || 0) - (parseInt(y, 10) || 0) || x.localeCompare(y, "fr", { numeric: true });
+  return [...groupes.entries()].map(([cle, g]) => {
+    const numeros = g.numeros.sort(ordreNumeros), nbTotal = totaux.get(cle) || numeros.length;
+    return { commune: g.commune, rue: g.rue, nb: numeros.length, nbTotal, numeros,
+             ligneSecteur: numeros.length < nbTotal ? `${g.rue} [${numeros.join(",")}]` : g.rue };
+  }).sort((a, b) => a.commune.localeCompare(b.commune, "fr") || a.rue.localeCompare(b.rue, "fr", { numeric: true }));
+}
+
 // Points GPS [lon, lat] de toutes les adresses d'un secteur (rues et numéros autorisés)
 export function pointsSecteur(secteur) {
   if (!secteur || !secteur.commune || !secteur.rues || secteur.rues.length === 0) return [];
@@ -390,6 +431,28 @@ export function analyserRuesSecteur(commune, lignes) {
   }
   const rues = lignes.map(l => l.trim()).filter(Boolean);
   return { communeConnue: true, lignes: analyses, nbAdresses: rues.length ? nbFoyersSecteur({ commune, rues }) : 0 };
+}
+
+// Diagnostic d'un import CSV de secteurs [{ nom, commune, rues, deja? }] : ne rend que les secteurs à vérifier,
+// soit parce que leur commune est absente de la base d'adresses (rien ne peut être contrôlé), soit parce que
+// des lignes de rues sont inconnues ou en doublon (mêmes statuts que le formulaire « Modifier le secteur »).
+// `deja` = les lignes de rues que le secteur a déjà en base : elles ont été acceptées une première fois
+// (HLM, lieux-dits absents de la base d'adresses…), on ne les signale pas à chaque réimport.
+export function diagnostiquerImportSecteurs(secteurs) {
+  const resultat = [];
+  for (const s of secteurs) {
+    const lignes = (s.rues || []).map(r => String(r)).filter(r => r.trim());
+    if (!lignes.length) continue;
+    const deja = new Set((s.deja || []).map(r => String(r).trim()));
+    const a = analyserRuesSecteur(s.commune, lignes);
+    if (!a.communeConnue) {
+      if (!deja.size) resultat.push({ nom: s.nom, commune: s.commune, communeInconnue: true, nbRues: lignes.length, problemes: [] });
+      continue;
+    }
+    const problemes = a.lignes.filter(l => (l.statut === "inconnue" || l.statut === "doublon") && !deja.has(l.ligne.trim()));
+    if (problemes.length) resultat.push({ nom: s.nom, commune: s.commune, communeInconnue: false, nbRues: lignes.length, problemes });
+  }
+  return resultat;
 }
 
 // Liste les rues d'un secteur avec leur nombre de foyers, triées alphabétiquement

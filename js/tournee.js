@@ -265,14 +265,24 @@ export async function statsGlobalesTournee() {
   };
   horsSecteur.nbCalendriers = horsSecteur.nbDons + horsSecteur.nbOfferts;
   const totalCollecte = totalEspeces + totalCheques + totalCarte;
+  const aujourdhui = dateLocaleISO();
   const parEquipe = equipes.map(eq => {
     const eqPassages = passages.filter(p=>p.equipeId===eq.id);
     const montant = eqPassages.filter(p=>p.statut==="don").reduce((s,p)=>s+Number(p.montant||0),0);
     const nbRefusEq = eqPassages.filter(p=>p.statut==="refuse").length;
     const nbOffertsEq = eqPassages.filter(p=>p.statut==="offert").length;
     const nbDonsEq = eqPassages.filter(p=>p.statut==="don").length;
+    // Activité : dernière saisie (ventes hors secteur comprises) et nombre de saisies du jour. Une relance ou
+    // une correction met à jour le passage existant sans changer sa date : elle ne compte pas ici.
+    let derniereSaisie = "", nbSaisiesAujourdhui = 0;
+    for (const p of eqPassages) {
+      if (!p.datePassage) continue;
+      if (p.datePassage > derniereSaisie) derniereSaisie = p.datePassage;
+      if (jourLocal(p.datePassage) === aujourdhui) nbSaisiesAujourdhui++;
+    }
     return { ...eq, montant, nbPassages:eqPassages.filter(p=>!p.horsSecteur).length, nbRefus:nbRefusEq,
-             nbOfferts:nbOffertsEq, nbCalendriers:nbDonsEq + nbOffertsEq };
+             nbOfferts:nbOffertsEq, nbCalendriers:nbDonsEq + nbOffertsEq,
+             derniereSaisie: derniereSaisie || null, nbSaisiesAujourdhui };
   }).sort((a,b)=>b.montant-a.montant);
   const nbSecteursTermines = secteurs.filter(s=>s.statut==="termine").length;
   const nbSecteursTotal = secteurs.length;
@@ -345,6 +355,22 @@ export function heureLocale(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+// Date d'une saisie dite à un humain : « il y a 12 min (14:32) », « aujourd'hui à 14:32 », « hier à 18:40 »,
+// « le 13/11 à 18:40 ». null si la date est absente ou illisible. `maintenant` sert aux tests.
+export function libelleDepuis(iso, maintenant = new Date()) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const heure = heureLocale(iso);
+  const minutes = Math.floor((maintenant.getTime() - d.getTime()) / 60000);
+  if (minutes < 1) return "à l'instant";                       // y compris une horloge de téléphone en avance
+  if (minutes < 60) return `il y a ${minutes} min (${heure})`;
+  const jour = jourLocal(iso);
+  if (jour === dateLocaleISO(maintenant)) return `aujourd'hui à ${heure}`;
+  const veille = new Date(maintenant); veille.setDate(veille.getDate() - 1);   // pas de « − 24 h » : change d'heure
+  if (jour === dateLocaleISO(veille)) return `hier à ${heure}`;
+  return `le ${d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} à ${heure}`;
 }
 
 // Cellule CSV compatible Excel : double les guillemets et neutralise les
