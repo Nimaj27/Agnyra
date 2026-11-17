@@ -1,5 +1,5 @@
 // secteurs.js — Gestion des secteurs géographiques
-import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetAllOrg, fsQuery, fsListen, fsListenOrg, where } from "./firebase.js";
+import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetRapide, fsGetAllOrg, fsQuery, fsListen, fsListenOrg, where } from "./firebase.js";
 import { COLLECTIONS as C2 } from "./firebase.js";
 
 export const STATUT_SECTEUR = { LIBRE:"libre", AFFECTE:"affecte", EN_COURS:"en_cours", TERMINE:"termine" };
@@ -23,7 +23,9 @@ export async function lireSecteurs() { return fsGetAllOrg(COLLECTIONS.SECTEURS);
 export async function secteursParEquipe(equipeId) {
   return fsQuery(COLLECTIONS.SECTEURS, where("equipeId", "==", equipeId));
 }
-export async function lireSecteur(id) { return fsGet(COLLECTIONS.SECTEURS, id); }
+// rapide : repli sur le cache si le serveur tarde (écrans de terrain : le secteur est déjà dans le cache
+// de l'équipier, tenu à jour par ses écouteurs) ; jamais pour l'édition côté admin.
+export async function lireSecteur(id, { rapide = false } = {}) { return rapide ? fsGetRapide(COLLECTIONS.SECTEURS, id) : fsGet(COLLECTIONS.SECTEURS, id); }
 export function ecouterSecteurs(callback) {
   return fsListenOrg(COLLECTIONS.SECTEURS, (secteurs) => {
     secteurs.sort((a, b) => (a.commune + a.nom).localeCompare(b.commune + b.nom));

@@ -600,7 +600,7 @@ body {
 .network-badge {
   font-size: .72rem; font-weight: 600;
   padding: 3px 8px; border-radius: 99px;
-  white-space: nowrap;
+  white-space: nowrap; flex-shrink: 0;
 }
 .network-badge--online  { background: rgba(34,197,94,.18); color: #BBF7D0; }
 .network-badge--offline { background: rgba(239,68,68,.25); color: #FECACA; animation: pulse-offline 2s infinite; }
