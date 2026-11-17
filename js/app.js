@@ -15,7 +15,7 @@ import {
   ecouterPassagesSecteur, corrigerTotauxSecteurs,
   lireConfig, sauvegarderConfig,
   exporterBilanCSV, telechargerCSV, celluleCSV, effacerTousLesPassages,
-  dateLocaleISO, jourLocal, heureLocale,
+  dateLocaleISO, jourLocal, heureLocale, libelleDepuis,
   STATUT_PASSAGE, STATUT_PASSAGE_LABEL, MODE_PAIEMENT
 } from "./tournee.js";
 import {
@@ -42,7 +42,7 @@ import {
 import { genererBilanPDF, telechargerBilanPDF } from "./pdf.js";
 import { vocalDisponible, analyserPhrase, ecouterVocal } from "./vocal.js";
 import { tracer, lireJournal, viderJournal, ACTIONS, ACTION_LABEL, ecartCumule } from "./journal.js";
-import { geolocDisponible, positionActuelle, adressesProches, chercherAdresses, nbFoyers, numerosDeRue, coordsRue, nbFoyersSecteur, ruesDuSecteur, analyserRuesSecteur } from "./geoloc.js";
+import { geolocDisponible, positionActuelle, adressesProches, chercherAdresses, nbFoyers, numerosDeRue, coordsRue, nbFoyersSecteur, ruesDuSecteur, analyserRuesSecteur, ruesSansSecteur, diagnostiquerImportSecteurs } from "./geoloc.js";
 import {
   initCarte, afficherSecteursSurCarte, afficherSecteurUnique, secteurALaPosition, PALETTE_EQUIPES
 } from "./carte.js";
@@ -748,21 +748,22 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.17", date: "2026-11-17", texte: "Côté équipier : un lien « Nouveautés » en bas de l'accueil permet de relire ce qui a changé, sans repasser par l'écran de connexion. Côté admin : la page Équipes affiche la dernière saisie de chaque équipe et le nombre de saisies du jour (bouton « Actualiser ») ; la carte du tableau de bord propose d'exporter en CSV les rues et numéros qu'aucun secteur ne couvre, avec la ligne à coller dans « Rues / zones » ; l'import CSV des secteurs signale, avant d'écrire quoi que ce soit, les rues inconnues de la base d'adresses (avec la rue la plus proche) et les doublons." },
   { version: "1.16", date: "2026-11-16", texte: "Saisie plus fiable avec un réseau faible ou absent : l'écran n'attend plus la confirmation du serveur pour valider un passage (fini le bouton bloqué sur « … » et les doublons en retapant). Le passage est gardé sur l'appareil et envoyé dès que le réseau revient ; la pastille indique « ⏳ N » saisies en attente d'envoi, et une alerte prévient si le serveur en refuse une. Les totaux de chaque secteur sont désormais mis à jour de façon atomique, sans risque d'erreur quand deux équipiers saisissent en même temps, et le tableau de bord corrige tout seul un éventuel écart." },
   { version: "1.15", date: "2026-11-16", texte: "Côté équipier : sous l'objectif d'un secteur (« 🎯 Objectif du secteur X / N calendriers »), un compteur séparé « 🧭 + N hors secteur » indique les calendriers vendus hors secteur par l'équipe. Ils ne sont pas comptés dans l'objectif du secteur, puisqu'ils n'appartiennent à aucun secteur." },
-  { version: "1.14", date: "2026-11-13", texte: "Formulaire « Modifier le secteur » : sous « Rues / zones », l'appli indique combien de boîtes aux lettres sont couvertes, signale les rues qu'elle ne reconnaît pas dans la base d'adresses (le nom du fond de carte diffère parfois) et propose en un clic la rue la plus proche, avec ses numéros conservés. Elle repère aussi les doublons (même rue écrite de deux façons) et permet de retirer la ligne en trop." },
-  { version: "1.13", date: "2026-11-13", texte: "Adresses en double : la base d'adresses rangeait parfois les mêmes maisons sous deux noms de rue (« Clos des Lilas » et « Résidence le Clos des Lilas », « Clos des Vallons » et « Rue Clos des Vallons »…). Ces rues jumelles sont maintenant reconnues : un seul nom suffit dans un secteur, et chaque maison n'est comptée qu'une fois (213 adresses en double retirées, le nombre de boîtes de certains secteurs baisse en conséquence, surtout Houlbec-Cocherel)." },
-  { version: "1.12", date: "2026-11-13", texte: "Carte du tableau de bord : tous les secteurs s'affichent maintenant comme ceux de Pacy et Ménilles, avec leur contour et un point par adresse (au lieu du contour de toute la commune pour les secteurs seuls dans leur commune). Les adresses sans secteur apparaissent en gris dans toutes les communes, et la carte s'ouvre à un zoom où les points restent lisibles." },
+  { version: "1.14", admin: true, date: "2026-11-13", texte: "Formulaire « Modifier le secteur » : sous « Rues / zones », l'appli indique combien de boîtes aux lettres sont couvertes, signale les rues qu'elle ne reconnaît pas dans la base d'adresses (le nom du fond de carte diffère parfois) et propose en un clic la rue la plus proche, avec ses numéros conservés. Elle repère aussi les doublons (même rue écrite de deux façons) et permet de retirer la ligne en trop." },
+  { version: "1.13", admin: true, date: "2026-11-13", texte: "Adresses en double : la base d'adresses rangeait parfois les mêmes maisons sous deux noms de rue (« Clos des Lilas » et « Résidence le Clos des Lilas », « Clos des Vallons » et « Rue Clos des Vallons »…). Ces rues jumelles sont maintenant reconnues : un seul nom suffit dans un secteur, et chaque maison n'est comptée qu'une fois (213 adresses en double retirées, le nombre de boîtes de certains secteurs baisse en conséquence, surtout Houlbec-Cocherel)." },
+  { version: "1.12", admin: true, date: "2026-11-13", texte: "Carte du tableau de bord : tous les secteurs s'affichent maintenant comme ceux de Pacy et Ménilles, avec leur contour et un point par adresse (au lieu du contour de toute la commune pour les secteurs seuls dans leur commune). Les adresses sans secteur apparaissent en gris dans toutes les communes, et la carte s'ouvre à un zoom où les points restent lisibles." },
   { version: "1.11", date: "2026-11-13", texte: "Ventes hors secteur : un équipier peut désormais enregistrer un calendrier remis à quelqu'un qui n'habite aucun secteur (bouton « 🧭 Vente hors secteur » sur son écran d'accueil : don ou offert, montant, mode de paiement, nom et lieu facultatifs, avec la liste de ses ventes et la suppression). Ces ventes comptent dans la collecte, le classement, le bilan de l'équipe et les exports, mais pas dans les foyers visités ni l'avancement des secteurs ; l'admin les retrouve dans Passages → « Ventes hors secteur »." },
-  { version: "1.10", date: "2026-11-13", texte: "Carte du tableau de bord : dans les communes découpées en plusieurs secteurs (Pacy, Ménilles…), toutes les adresses de la base sont maintenant affichées. Celles qu'aucun secteur ne couvre apparaissent en gris, avec leur numéro et leur rue au clic, pour repérer ce qui n'est affecté à personne." },
+  { version: "1.10", admin: true, date: "2026-11-13", texte: "Carte du tableau de bord : dans les communes découpées en plusieurs secteurs (Pacy, Ménilles…), toutes les adresses de la base sont maintenant affichées. Celles qu'aucun secteur ne couvre apparaissent en gris, avec leur numéro et leur rue au clic, pour repérer ce qui n'est affecté à personne." },
   { version: "1.9", date: "2026-11-13", texte: "Côté équipier : la mini-carte n'affiche plus toute la commune mais seulement les adresses du secteur ; « Dans quel secteur suis-je ? » repère le bon secteur même quand la commune en compte plusieurs ; les rues absentes de la base d'adresses (HLM, résidences, lieux-dits) sont maintenant proposées dans la saisie rapide pour y ajouter des numéros." },
   { version: "1.8", date: "2026-11-12", texte: "Chaque secteur affiche son nombre réel de boîtes aux lettres (adresses de la base + numéros ajoutés − adresses fusionnées − inhabitées), avec le total sur la liste des secteurs et un avertissement pour les rues non comptées. Le même calcul sert maintenant aux statistiques, au bilan et au terrain." },
   { version: "1.7", date: "2026-10-02", texte: "Le terrain affiche désormais le numéro de passage à un foyer (1er passage, 2ème passage…) : liste des passages, foyers à relancer et fenêtres de relance/correction." },
-  { version: "1.6", date: "2026-10-01", texte: "Nouvelle présentation pour Équipes, Historique, Classement, Statistiques et le choix du membre : cartes et graphiques plus lisibles, répartition par moyen de paiement ajoutée." },
-  { version: "1.5", date: "2026-10-01", texte: "Nouvelle présentation de l'espace admin : navigation par icônes regroupées, filtres par statut sur les secteurs, chiffres clés plus lisibles." },
+  { version: "1.6", admin: true, date: "2026-10-01", texte: "Nouvelle présentation pour Équipes, Historique, Classement, Statistiques et le choix du membre : cartes et graphiques plus lisibles, répartition par moyen de paiement ajoutée." },
+  { version: "1.5", admin: true, date: "2026-10-01", texte: "Nouvelle présentation de l'espace admin : navigation par icônes regroupées, filtres par statut sur les secteurs, chiffres clés plus lisibles." },
   { version: "1.4", date: "2026-10-01", texte: "Boutons de statut terrain (Don/Offert/Refus/Absent) agrandis, pour un repérage et une saisie plus faciles sur le terrain." },
-  { version: "1.3", date: "2026-09-14", texte: "Ajout des nouveautés dans le pied de la barre latérale." },
-  { version: "1.2", date: "2026-09-04", texte: "Déploiement automatique de l'application à chaque mise à jour (agnyra.web.app)." },
+  { version: "1.3", admin: true, date: "2026-09-14", texte: "Ajout des nouveautés dans le pied de la barre latérale." },
+  { version: "1.2", admin: true, date: "2026-09-04", texte: "Déploiement automatique de l'application à chaque mise à jour (agnyra.web.app)." },
   { version: "1.1", date: "2026-09-04", texte: "Le logo affiché après connexion correspond désormais à la caserne connectée." },
   { version: "1.0", date: "2026-09-02", texte: "Nouveau nom et nouveau logo : Belenos devient Agnyra." }
 ];
@@ -770,11 +771,13 @@ const CHANGELOG = [
 function showChangelogModal() {
   const modal = document.getElementById("modal-changelog");
   if (!modal) return;
+  // Un équipier connecté ne voit pas les changements réservés à l'espace admin (entrées « admin: true »).
+  const entrees = APP.role === "equipier" ? CHANGELOG.filter(c => !c.admin) : CHANGELOG;
   modal.innerHTML = `
     <div class="modal-inner">
       <h2>Nouveautés <span class="changelog-version-actuelle">v${h(CHANGELOG[0]?.version || '')}</span></h2>
       <ul class="changelog-liste">
-        ${CHANGELOG.map(c => `
+        ${entrees.map(c => `
           <li>
             <span class="changelog-entete">
               <span class="changelog-version">v${h(c.version)}</span>
@@ -904,6 +907,22 @@ function bindMobileMenu() {
 //  DASHBOARD ADMIN
 // ════════════════════════════════════════════════════════════
 
+// Export CSV des adresses de la base qu'aucun secteur ne couvre (les points gris de la carte), une ligne par
+// rue. La dernière colonne se colle telle quelle dans « Rues / zones » d'un secteur : c'est le nom de la base
+// d'adresses, avec les numéros entre crochets quand le reste de la rue est déjà dans un secteur.
+function exporterAdressesSansSecteur(secteurs) {
+  try {
+    const rues = ruesSansSecteur(secteurs);
+    if (!rues.length) { toast("Toutes les adresses de la base sont dans un secteur", "info"); return; }
+    const ligne = (...vals) => vals.map(celluleCSV).join(";") + "\n";
+    let csv = ligne("Commune", "Rue", "Adresses sans secteur", "Adresses de la rue dans la base", "Numéros sans secteur", "Ligne à coller dans « Rues / zones »");
+    for (const r of rues) csv += ligne(r.commune, r.rue, r.nb, r.nbTotal, r.numeros.join(" "), r.ligneSecteur);
+    telechargerCSV(csv, `adresses-sans-secteur-${dateLocaleISO()}.csv`);
+    const nbAdresses = rues.reduce((t, r) => t + r.nb, 0);
+    toast(`Export téléchargé : ${rues.length} rue${rues.length > 1 ? "s" : ""}, ${nbAdresses} adresse${nbAdresses > 1 ? "s" : ""} sans secteur`, "success");
+  } catch (e) { toast("Erreur export : " + e.message, "error"); }
+}
+
 async function renderDashboard() {
   if (APP.role !== "admin") { naviguer("#login"); return; }
   stopUnsubs();
@@ -962,7 +981,9 @@ async function renderDashboard() {
       }
       legend.innerHTML = [...groupes.values()]
         .map(g => `<span><i style="background:${g.couleur}"></i> ${h(g.secteurs.length > 1 ? (g.secteurs[0].equipNom || g.secteurs.map(s => s.nom).join(' / ')) : g.secteurs[0].nom)}</span>`).join('')
-        + (couches?.nbSansSecteur ? `<span><i style="background:#9CA3AF"></i> Adresses sans secteur (${couches.nbSansSecteur})</span>` : '');
+        + (couches?.nbSansSecteur ? `<span><i style="background:#9CA3AF"></i> Adresses sans secteur (${couches.nbSansSecteur})
+            <button type="button" id="btn-export-sans-secteur" class="legend-lien" title="Télécharger la liste des rues et des numéros qu'aucun secteur ne couvre">⬇️ CSV</button></span>` : '');
+      document.getElementById("btn-export-sans-secteur")?.addEventListener("click", () => exporterAdressesSansSecteur(secteurs));
     }
   }
 
@@ -1239,6 +1260,24 @@ async function renderSecteurs() {
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/^equipe\s+/i, "").replace(/\s+/g, " ").trim();
     const equipesParNom = new Map((await lireEquipes()).map(eq => [normEquipe(eq.nom), eq]));
     let affectes = 0, equipesIntrouvables = [];
+
+    // Contrôle des rues AVANT d'écrire quoi que ce soit : une rue absente de la base d'adresses est acceptée
+    // à l'import mais ne couvre aucune adresse (pas de points sur la carte, pas de boîtes comptées).
+    const avecRues = [];
+    for (let i = 1; i < rows2d.length; i++) {
+      const lib = {};
+      headers.forEach((nomCol, idx) => lib[nomCol] = (rows2d[i][idx] || '').trim());
+      if (lib.nom && lib.commune && lib.rues) {
+        avecRues.push({ nom: lib.nom, commune: lib.commune, rues: lib.rues.split(';').map(r => r.trim()).filter(Boolean),
+                        deja: index.get(clef(lib.nom, lib.commune))?.rues || [] });
+      }
+    }
+    const aVerifier = diagnostiquerImportSecteurs(avecRues);
+    if (aVerifier.length && !(await confirmerImportSecteurs(aVerifier, avecRues.length))) {
+      toast("Import annulé : rien n'a été modifié", "info");
+      e.target.value = '';
+      return;
+    }
 
     for (let i = 1; i < rows2d.length; i++) {
       const values = rows2d[i];
@@ -1707,6 +1746,71 @@ function brancherDiagnosticRues() {
   afficher();
 }
 
+// Fenêtre affichée avant un import CSV de secteurs quand des rues sont à vérifier (voir
+// diagnostiquerImportSecteurs, geoloc.js). Rend une promesse : true = importer quand même, false = annuler.
+function confirmerImportSecteurs(problemes, nbSecteursAvecRues) {
+  return new Promise((resolve) => {
+    let modal = document.getElementById("modal-import-diag");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "modal-import-diag"; modal.className = "modal hidden";
+      document.body.appendChild(modal);
+    }
+    const phrase = (l) => {
+      if (l.statut === "doublon") return `🔁 <strong>${h(l.ligne.trim())}</strong> : même rue que « ${h(l.memeQue.trim())} », une seule ligne suffit`;
+      const sugg = (l.suggestions || []).map(sg => `${sg.rue} (${sg.nb} adr.)`).join(" · ");
+      return `⚠ <strong>${h(l.ligne.trim())}</strong> : rue non reconnue${sugg ? ` — proche : ${h(sugg)}` : ""}`;
+    };
+    const nbLignes = problemes.reduce((t, p) => t + (p.communeInconnue ? 1 : p.problemes.length), 0);
+    const MAX = 40;
+    let restant = MAX;
+    const blocs = problemes.map(p => {
+      if (restant <= 0) return "";
+      const items = p.communeInconnue
+        ? [`ℹ Commune « ${h(p.commune)} » absente de la base d'adresses : ${p.nbRues} rue${p.nbRues > 1 ? "s" : ""} impossible${p.nbRues > 1 ? "s" : ""} à vérifier`]
+        : p.problemes.slice(0, restant).map(phrase);
+      restant -= items.length;
+      return `<div class="rd-ligne"><strong>${h(p.nom)}</strong> · ${h(p.commune)}${items.map(t => `<div class="rd-note">${t}</div>`).join("")}</div>`;
+    }).join("");
+    const nbMasquees = nbLignes - (MAX - Math.max(restant, 0));
+    modal.innerHTML = `
+      <div class="modal-inner">
+        <h2>Rues à vérifier avant l'import</h2>
+        <p>${problemes.length} secteur${problemes.length > 1 ? "s" : ""} sur ${nbSecteursAvecRues} ${problemes.length > 1 ? "contiennent" : "contient"} des rues à vérifier. Rien n'est encore écrit.
+        Une rue non reconnue est importée telle quelle mais ne couvre aucune adresse (ni points sur la carte, ni boîtes comptées).
+        Les HLM et lieux-dits absents de la base sont normaux ; une rue « proche » d'une rue connue est plutôt un nom écrit autrement.
+        Les lignes déjà enregistrées ne sont pas rappelées.</p>
+        <div class="import-diag">${blocs}${nbMasquees > 0 ? `<p class="rd-note">… et ${nbMasquees} autre${nbMasquees > 1 ? "s" : ""} ligne${nbMasquees > 1 ? "s" : ""} (voir le rapport CSV).</p>` : ""}</div>
+        <div class="modal-actions">
+          <button class="btn btn--ghost" data-act="rapport">⬇️ Rapport CSV</button>
+          <button class="btn btn--ghost" data-act="annuler">Annuler l'import</button>
+          <button class="btn btn--primary" data-act="importer">Importer quand même</button>
+        </div>
+      </div>`;
+    modal.classList.remove("hidden");
+    modal.onclick = (ev) => {
+      const act = ev.target.closest("[data-act]")?.dataset.act;
+      if (!act) return;
+      if (act === "rapport") {
+        const ligne = (...vals) => vals.map(celluleCSV).join(";") + "\n";
+        let csv = ligne("Secteur", "Commune", "Ligne de rue", "Problème", "Rue proche dans la base");
+        for (const p of problemes) {
+          if (p.communeInconnue) { csv += ligne(p.nom, p.commune, "", "Commune absente de la base d'adresses", ""); continue; }
+          for (const l of p.problemes) {
+            csv += ligne(p.nom, p.commune, l.ligne.trim(), l.statut === "doublon" ? `Doublon de « ${l.memeQue.trim()} »` : "Rue non reconnue",
+                         (l.suggestions || []).map(sg => sg.rue).join(" | "));
+          }
+        }
+        telechargerCSV(csv, `import-secteurs-rues-a-verifier-${dateLocaleISO()}.csv`);
+        return;
+      }
+      modal.classList.add("hidden");
+      modal.onclick = null;
+      resolve(act === "importer");
+    };
+  });
+}
+
 window.closeModal = () => {
   $$(".modal").forEach(m => m.classList.add("hidden"));
 };
@@ -1723,6 +1827,7 @@ async function renderEquipes() {
     <div class="page-header">
       <h1>Équipes</h1>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="btn-refresh-equipes" class="btn btn--ghost" title="Recharger la dernière saisie et les saisies du jour de chaque équipe">↻ Actualiser</button>
         <button id="btn-auto-affecter" class="btn btn--ghost">🔗 Affecter par nom</button>
         <button id="btn-vider-equipes" class="btn btn--danger">🗑️ Tout supprimer</button>
         <button id="btn-import-csv-equipe" class="btn btn--ghost">📥 Importer CSV</button>
@@ -1836,24 +1941,50 @@ async function renderEquipes() {
     e.target.value = '';
   });
 
-  const unsub = ecouterEquipes(async (equipes) => {
+  // Les cartes se rechargent quand les équipes changent, et à la demande (« Actualiser ») pour l'activité :
+  // lire tous les passages à intervalle régulier coûterait des lectures Firestore pour rien.
+  let dernieresEquipes = null;
+  const chargerCartes = async (equipes) => {
+    dernieresEquipes = equipes;
     // Les PIN vivent dans une collection séparée : on les rattache pour l'affichage
     let pins = {}, secteurs = [], stats = null;
     try { pins = await lirePins(); } catch(e) {}
     try { [secteurs, stats] = await Promise.all([lireSecteurs(), statsGlobalesTournee()]); } catch(e) {}
     const ids = equipes.map(e => e.id).sort();
-    renderEquipesList(equipes.map(e => ({
-      ...e,
-      pin: pins[e.id] || e.pin || null,
-      couleur: PALETTE_EQUIPES[ids.indexOf(e.id) % PALETTE_EQUIPES.length],
-      nbSecteurs: secteurs.filter(s => s.equipeId === e.id).length,
-      montant: stats?.parEquipe.find(x => x.id === e.id)?.montant || 0
-    })));
-  });
+    renderEquipesList(equipes.map(e => {
+      const st = stats?.parEquipe.find(x => x.id === e.id);
+      return {
+        ...e,
+        pin: pins[e.id] || e.pin || null,
+        couleur: PALETTE_EQUIPES[ids.indexOf(e.id) % PALETTE_EQUIPES.length],
+        nbSecteurs: secteurs.filter(s => s.equipeId === e.id).length,
+        montant: st?.montant || 0,
+        // null = statistiques indisponibles (hors ligne) : on n'affirme pas « aucune saisie »
+        activite: st ? { derniere: st.derniereSaisie, nbAujourdhui: st.nbSaisiesAujourdhui } : null
+      };
+    }), new Date());
+  };
+  const unsub = ecouterEquipes(chargerCartes);
   APP.unsubs.push(unsub);
+
+  document.getElementById("btn-refresh-equipes")?.addEventListener("click", async () => {
+    if (!dernieresEquipes) return;
+    const btn = document.getElementById("btn-refresh-equipes");
+    setLoading(btn, true);
+    try { await chargerCartes(dernieresEquipes); } finally { setLoading(btn, false); }
+  });
 }
 
-function renderEquipesList(equipes) {
+// Dernière saisie d'une équipe : en vert quand elle date de moins de 30 minutes (équipe active en ce moment).
+function htmlActiviteEquipe(activite, maintenant = new Date()) {
+  if (!activite) return `<strong class="equipe-activite">—</strong>`;
+  const libelle = libelleDepuis(activite.derniere, maintenant);
+  if (!libelle) return `<strong class="equipe-activite equipe-activite--aucune">Aucune saisie</strong>`;
+  const recente = maintenant.getTime() - new Date(activite.derniere).getTime() < 30 * 60000;
+  return `<strong class="equipe-activite${recente ? " equipe-activite--recente" : ""}">${h(libelle)}</strong>`;
+}
+
+function renderEquipesList(equipes, majA = new Date()) {
   const list = document.getElementById("equipes-list");
   if (!list) return;
   if (equipes.length === 0) {
@@ -1861,6 +1992,7 @@ function renderEquipesList(equipes) {
     return;
   }
   list.innerHTML = `
+    <p class="equipes-maj">Activité relevée à ${h(majA.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }))} — « Actualiser » la recharge.</p>
     <div class="equipes-grid">
       ${equipes.map(e => {
         const remis = totalRemis(e);
@@ -1880,6 +2012,8 @@ function renderEquipesList(equipes) {
               ${e.pin ? `<code class="pin-code">${e.pin}</code>` : '<span style="color:var(--orange);font-size:.75rem">à migrer</span>'}
             </div>
             <div class="equipe-carte-ligne"><span>Secteurs affectés</span><strong>${e.nbSecteurs}</strong></div>
+            <div class="equipe-carte-ligne"><span>Dernière saisie</span>${htmlActiviteEquipe(e.activite, majA)}</div>
+            <div class="equipe-carte-ligne"><span>Saisies aujourd'hui</span><strong>${e.activite ? e.activite.nbAujourdhui : "—"}</strong></div>
             <div class="equipe-carte-ligne">
               <span>Collecté</span>
               ${remis > 0
@@ -3369,12 +3503,17 @@ async function renderTerrain() {
       <div id="terrain-content">
         <div class="loader">Chargement de tes secteurs…</div>
       </div>
+      <footer class="terrain-pied">
+        <button id="btn-changelog-terrain" class="btn btn--ghost btn--sm">Nouveautés <span class="changelog-version-badge">v${h(CHANGELOG[0]?.version || '')}</span></button>
+      </footer>
+      <div id="modal-changelog" class="modal hidden"></div>
     </div>
   `;
 
   const unsubNet = bindNetworkBadge();
   APP.unsubs.push(unsubNet);
 
+  document.getElementById("btn-changelog-terrain")?.addEventListener("click", showChangelogModal);
   document.getElementById("btn-mon-bilan")?.addEventListener("click", () => afficherMonBilan());
 
   document.getElementById("btn-logout-terrain")?.addEventListener("click", () => {

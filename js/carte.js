@@ -1,4 +1,4 @@
-import { pointsSecteur, adressesCommune, cleBaseCommune } from "./geoloc.js";
+import { pointsSecteur, adressesSansSecteur, cleBaseCommune } from "./geoloc.js";
 // Échappement HTML des données de secteur affichées dans les popups Leaflet.
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
 // ── Polygones précalculés des secteurs découpés ──
@@ -253,26 +253,20 @@ export async function afficherSecteursSurCarte(map, secteurs, equipes=[]) {
 
   // Toutes les adresses de la base qu'aucun secteur ne couvre sont dessinées en gris
   // (sous les points colorés), pour repérer d'un coup d'œil ce qui n'est affecté à personne.
-  let nbSansSecteur = 0;
+  // Même liste que l'export CSV du tableau de bord (adressesSansSecteur, geoloc.js).
+  const sansSecteur = adressesSansSecteur(secteurs);
   {
-    const couvertes = new Set();
-    for (const s of secteurs) for (const [lon, lat] of pointsSecteur(s)) couvertes.add(`${cleBaseCommune(s.commune)}|${lon},${lat}`);
-    const vues = new Set();
-    for (const commune of Object.keys(nbParCommune)) {
-      const base = cleBaseCommune(commune);
-      if (vues.has(base)) continue;
-      vues.add(base);
-      const marqueurs = [];
-      for (const a of adressesCommune(commune)) {
-        if (couvertes.has(`${base}|${a.lon},${a.lat}`)) continue;
-        const m = L.circleMarker([a.lat, a.lon], { renderer: rendu, radius: rayon0 * 0.85, color: "#FFFFFF", weight: 0.8, fillColor: "#9CA3AF", fillOpacity: 0.85 })
-          .bindPopup(`<strong>${esc(a.numero)} ${esc(a.rue)}</strong><br><span style="color:#666">Aucun secteur</span>`);
-        m._sansSecteur = true; points.push(m); marqueurs.push(m);
-      }
-      if (marqueurs.length) { const g = L.layerGroup(marqueurs); g.addTo(map); layers.push(g); nbSansSecteur += marqueurs.length; }
+    const parCommune = new Map();
+    for (const a of sansSecteur) {
+      const m = L.circleMarker([a.lat, a.lon], { renderer: rendu, radius: rayon0 * 0.85, color: "#FFFFFF", weight: 0.8, fillColor: "#9CA3AF", fillOpacity: 0.85 })
+        .bindPopup(`<strong>${esc(a.numero)} ${esc(a.rue)}</strong><br><span style="color:#666">Aucun secteur</span>`);
+      m._sansSecteur = true; points.push(m);
+      if (!parCommune.has(a.commune)) parCommune.set(a.commune, []);
+      parCommune.get(a.commune).push(m);
     }
+    for (const marqueurs of parCommune.values()) { const g = L.layerGroup(marqueurs); g.addTo(map); layers.push(g); }
   }
-  layers.nbSansSecteur = nbSansSecteur;
+  layers.nbSansSecteur = sansSecteur.length;
 
   // Contours communaux : dernier recours, uniquement pour un secteur sans aucune adresse connue
   // dans une commune non découpée. Demandés en parallèle : en séquence, un service lent

@@ -381,6 +381,10 @@ body {
 .equipe-carte-ligne { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-2); font-size: .82rem; color: var(--ardoise-mid); font-weight: 600; }
 .equipe-carte-ligne:last-child { margin-bottom: 0; }
 .equipe-carte-montant { font-family: var(--font-h); font-size: 1.1rem; font-weight: 700; color: var(--vert); }
+.equipes-maj { margin: 0 0 var(--sp-3); font-size: .78rem; color: var(--ardoise-mid); }
+.equipe-activite { font-weight: 600; text-align: right; }
+.equipe-activite--recente { color: var(--vert); }
+.equipe-activite--aucune { color: var(--ardoise-mid); font-weight: 500; }
 .equipe-carte-actions { display: flex; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); background: var(--gris-fond); border-top: 1px solid var(--ardoise-light); }
 .equipe-carte-actions .btn { flex: 1; }
 
@@ -583,6 +587,8 @@ body {
 @media (min-width: 768px) {
   .terrain-layout { max-width: 600px; margin: 0 auto; }
 }
+.terrain-pied { margin-top: auto; padding: var(--sp-4); text-align: center; }
+.import-diag { max-height: 50vh; overflow-y: auto; margin: var(--sp-3) 0; }
 
 /* ── Carte (Leaflet) ─────────────────────────────────────────── */
 .map-legend {
@@ -594,6 +600,11 @@ body {
   display: inline-block; width: 12px; height: 12px;
   border-radius: 3px; flex-shrink: 0;
 }
+.legend-lien {
+  border: 1.5px solid var(--gris-bord); background: var(--blanc); border-radius: 999px;
+  padding: 2px 10px; font: inherit; font-size: .76rem; font-weight: 600; color: var(--ardoise-mid); cursor: pointer;
+}
+.legend-lien:hover { border-color: var(--rouge); color: var(--rouge); }
 .leaflet-popup-content-wrapper { border-radius: var(--r-md); }
 
 /* ── Badge réseau (hors-ligne) ──────────────────────────────── */

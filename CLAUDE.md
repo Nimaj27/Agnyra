@@ -224,8 +224,8 @@ invalider le cache PWA, même sans changement visible). La version actuelle
 (`CHANGELOG[0].version`) s'affiche à la fois sur le bouton "Nouveautés" et
 en titre de la modale. Maintenu à la main — penser à ajouter une entrée
 (avec numéro incrémenté) à chaque changement visible pour l'utilisateur
-(pas pour du réglage interne/bug technique). Pas encore présent côté
-équipier (terrain).
+(pas pour du réglage interne/bug technique). Présent aussi côté équipier
+depuis la v1.17 (voir « Activité des équipes… » plus bas).
 
 ## Design pass sur les écrans admin restants (01/10)
 
@@ -586,6 +586,38 @@ les écouteurs voient l'écriture aussitôt (`hasPendingWrites`). L'interface at
 - Non vérifié : comportement avec un vrai serveur Firestore (règles, reconnexion), et refus tardif du serveur (signalé par
   `surEchecEcriture`, non simulable sans serveur). Les écritures admin passent aussi par `ecritureLocale` : un import long
   sur réseau lent peut afficher le toast « Enregistré sur cet appareil ».
+
+## Activité des équipes, adresses sans secteur, Nouveautés équipier, contrôle de l'import CSV (17/11)
+
+Quatre petits chantiers livrés ensemble (v1.17).
+- **Dernière activité par équipe** (page Équipes) : `statsGlobalesTournee().parEquipe[]` expose `derniereSaisie` (plus grande
+  `datePassage`, ventes hors secteur comprises) et `nbSaisiesAujourdhui` ; les cartes affichent « Dernière saisie » (en vert sous
+  30 min) et « Saisies aujourd'hui » (`htmlActiviteEquipe`, `libelleDepuis` dans `tournee.js` : « il y a 12 min (14:32) »,
+  « aujourd'hui à… », « hier à… », « le 13/11 à… »). Une relance ou une correction met à jour le passage sans changer sa date :
+  elle ne compte pas comme saisie. **Rechargement manuel** (bouton « ↻ Actualiser ») et à chaque changement des équipes, pas
+  d'intervalle : relire tous les passages à intervalle régulier coûterait des lectures Firestore (déjà un point sensible). Le
+  nombre de saisies *en attente d'envoi* n'est pas visible côté admin : il vit dans le cache du téléphone de l'équipier.
+- **Export CSV des adresses sans secteur** : lien « ⬇️ CSV » dans la légende de la carte du tableau de bord, à côté de « Adresses
+  sans secteur (N) ». `adressesSansSecteur(secteurs)` (`geoloc.js`) est désormais **la** source des points gris de la carte
+  (`afficherSecteursSurCarte`) et de l'export : mêmes 718 adresses sur la v7, vérifié identique avant/après dans le navigateur.
+  `ruesSansSecteur` regroupe par rue ; une ligne par rue : commune, rue, adresses sans secteur, adresses de la rue dans la base,
+  numéros, et « Ligne à coller dans Rues / zones » (nom de la base d'adresses, avec `[numéros]` quand le reste de la rue est déjà
+  dans un secteur). Propriété testée : coller ces lignes dans un secteur couvre exactement les adresses listées (173 rues, 0 écart),
+  et après ajout de toutes les lignes il ne reste aucune adresse grise.
+- **« Nouveautés » côté équipier** : lien en bas de l'accueil terrain (`btn-changelog-terrain`, `.terrain-pied`), même modale que
+  l'admin. `CHANGELOG` : les entrées propres à l'espace admin portent `admin: true` (1.2, 1.3, 1.5, 1.6, 1.10, 1.12, 1.13, 1.14) et sont
+  masquées quand `APP.role === "equipier"` ; à poser sur toute future entrée qui ne concerne pas le terrain. L'écran de connexion
+  (pas de rôle) montre tout.
+- **Contrôle des rues à l'import CSV des secteurs** : avant d'écrire quoi que ce soit, `diagnostiquerImportSecteurs` (`geoloc.js`, mêmes
+  statuts que le formulaire : inconnue / doublon / commune absente de la base) alimente la fenêtre `confirmerImportSecteurs` (`app.js`) :
+  « Importer quand même », « Annuler l'import » (rien n'est modifié) ou « Rapport CSV ». **Seules les lignes nouvelles sont signalées** :
+  celles déjà enregistrées dans le secteur (même nom + commune, champ `deja`) sont ignorées, sinon le fichier v7 déclencherait à chaque
+  réimport 136 lignes « hors base » (HLM, lieux-dits) pourtant voulues. Sur un premier import de la v7 : 32 secteurs / 136 lignes ; en
+  réimport à l'identique : aucune fenêtre. Liste plafonnée à 40 lignes dans la fenêtre (le reste dans le rapport).
+- Testé : fonctions pures sur la vraie base d'adresses (Node), fonctions réelles de `app.js` extraites dans une page de test
+  (Chromium : cartes Équipes avec XSS dans un nom d'équipe, export CSV, filtre du changelog, fenêtre d'import et son rapport, plafond de
+  40 lignes, texte piégé échappé), carte avant/après identique. **Non testé dans l'application déployée** (écran terrain réel, import
+  CSV avec un vrai Firestore).
 
 ## Structure du code
 
