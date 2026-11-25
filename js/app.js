@@ -24,7 +24,7 @@ import {
   ecouterSecteurs, ecouterSecteursEquipe,
   lireSecteur, lireSecteurs, statsGlobales, secteursParEquipe,
   ajouterComplements, retirerComplement, lireComplements,
-  fusionnerAdresses, annulerFusion, adressesSecondaires, trouverFusion, lireSecteursVoisins,
+  fusionnerAdresses, annulerFusion, adressesSecondaires, trouverFusion, lireSecteursVoisins, nbBoitesReelles, demarrerSecteurs,
   marquerInhabitee, estInhabitee,
   enregistrerNoteAdresse, lireNoteAdresse, toutesLesNotes,
   enregistrerRemise, supprimerRemise, totalRemis,
@@ -36,13 +36,13 @@ import {
   chargerHistoriqueAdresses, resumeHistorique, normAdresse, exporterHistoriqueComplet
 } from "./historique.js";
 import {
-  PALIERS, getPalier, pourcentCompletionEquipe, BADGES,
+  PALIERS, getPalier, avancementEquipe, BADGES,
   calculerBadges, detecterNouveauxBadges, getPodium
 } from "./gamification.js";
 import { genererBilanPDF, telechargerBilanPDF } from "./pdf.js";
 import { vocalDisponible, analyserPhrase, ecouterVocal } from "./vocal.js";
 import { tracer, lireJournal, viderJournal, ACTIONS, ACTION_LABEL, ecartCumule } from "./journal.js";
-import { geolocDisponible, positionActuelle, adressesProches, chercherAdresses, nbFoyers, numerosDeRue, coordsRue, nbFoyersSecteur, ruesDuSecteur, analyserRuesSecteur, ruesSansSecteur, diagnostiquerImportSecteurs, adresseComptee, suggererRues } from "./geoloc.js";
+import { geolocDisponible, positionActuelle, adressesProches, chercherAdresses, nbFoyers, numerosDeRue, coordsRue, ruesDuSecteur, analyserRuesSecteur, ruesSansSecteur, diagnostiquerImportSecteurs, adresseComptee, suggererRues } from "./geoloc.js";
 import {
   initCarte, afficherSecteursSurCarte, afficherSecteurUnique, secteurALaPosition, PALETTE_EQUIPES
 } from "./carte.js";
@@ -129,27 +129,18 @@ function ja(value) {
   return h(JSON.stringify(String(value ?? "")));
 }
 
-// Nombre réel de boîtes aux lettres d'un secteur : adresses de la base pour ses
-// rues, plus les numéros ajoutés à la main, moins les adresses fusionnées
-// (comptées une seule fois) et les adresses marquées inhabitées.
-function nbBoitesReelles(secteur) {
-  if (!secteur) return 0;
-  let n = nbFoyersSecteur(secteur);
-  n += Object.values(secteur.ruesComplements || {}).reduce((t, arr) => t + (arr || []).length, 0);
-  n -= nbSecondairesComptees(secteur);
-  n -= (secteur.inhabitees || []).length;
-  return Math.max(0, n);
-}
-// Adresses regroupées derrière une autre (« Même boîte que… ») : seules celles qui sont réellement des boîtes de CE
-// secteur sont à retrancher. Une adresse d'un autre secteur, ou mal saisie, ne retire rien ici (avant, elle faisait
-// perdre une boîte de trop au secteur d'origine).
-function nbSecondairesComptees(secteur) {
-  return new Set(adressesSecondaires(secteur).filter(a => adresseComptee(secteur, a)).map(normAdr)).size;
-}
 // Rues du secteur absentes de la base d'adresses : saisies, mais non comptées.
 function nbRuesHorsBase(secteur) {
   const saisies = (secteur?.rues || []).length;
   return Math.max(0, saisies - ruesDuSecteur(secteur).length);
+}
+
+// Texte sous la barre d'avancement d'une équipe : « 62% des boîtes traitées · 1/3 secteurs terminés » (voir avancementEquipe)
+function libelleAvancement(av) {
+  const n = av.nbSecteurs, pl = n > 1 ? "s" : "";
+  return av.boitesTotal > 0
+    ? `${av.pct}% des boîtes traitées · ${av.nbTermines}/${n} secteur${pl} terminé${pl}`
+    : `${av.pct}% des secteurs terminés`;
 }
 
 function formatMontant(val) {
@@ -754,6 +745,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.19", date: "2026-11-25", texte: "Progression des équipes : la barre et le palier (🔰 🥉 🥈 🥇 🏆) se calculent désormais sur les boîtes traitées (dons, offerts, refus) par rapport aux boîtes des secteurs de l'équipe, et non plus sur le nombre de secteurs clôturés. Une équipe qui n'a qu'un secteur avance donc avec sa tournée, au lieu de rester à 0 % puis de passer d'un coup à 100 %. Un secteur clôturé compte pour toutes ses boîtes, et la barre n'atteint 100 % que lorsque tout est traité. Les badges 🏁 Mission accomplie et 🔥 Série de 3 restent liés à la clôture des secteurs. Par ailleurs, un secteur passe maintenant automatiquement « En cours » à la première saisie (il restait « Affecté » jusqu'à sa clôture)." },
   { version: "1.18", date: "2026-11-25", texte: "« Même boîte que… » : les adresses regroupées se choisissent désormais dans une liste au lieu d'être tapées (la rue est proposée dès les premières lettres, les fautes de frappe sont tolérées, puis on touche les numéros), ce qui évite les fautes de nom de rue. Une maison d'angle dont les numéros sont dans deux rues de deux secteurs différents est regroupée dans les deux secteurs : elle n'est comptée et visitée qu'une fois. Enfin, le nombre de boîtes d'un secteur ne retranche plus que les adresses regroupées qui s'y trouvent réellement (une adresse d'un autre secteur ou mal écrite faisait perdre une boîte de trop)." },
   { version: "1.17", date: "2026-11-17", texte: "Côté équipier : un lien « Nouveautés » en bas de l'accueil permet de relire ce qui a changé, sans repasser par l'écran de connexion. Côté admin : la page Équipes affiche la dernière saisie de chaque équipe et le nombre de saisies du jour (bouton « Actualiser ») ; la carte du tableau de bord propose d'exporter en CSV les rues et numéros qu'aucun secteur ne couvre, avec la ligne à coller dans « Rues / zones » ; l'import CSV des secteurs signale, avant d'écrire quoi que ce soit, les rues inconnues de la base d'adresses (avec la rue la plus proche) et les doublons." },
   { version: "1.16", date: "2026-11-16", texte: "Saisie plus fiable avec un réseau faible ou absent : l'écran n'attend plus la confirmation du serveur pour valider un passage (fini le bouton bloqué sur « … » et les doublons en retapant). Le passage est gardé sur l'appareil et envoyé dès que le réseau revient ; la pastille indique « ⏳ N » saisies en attente d'envoi, et une alerte prévient si le serveur en refuse une. Les totaux de chaque secteur sont désormais mis à jour de façon atomique, sans risque d'erreur quand deux équipiers saisissent en même temps, et le tableau de bord corrige tout seul un éventuel écart." },
@@ -1040,6 +1032,14 @@ async function renderDashboard() {
         .finally(() => { APP._reconcilEnCours = false; });
     }
 
+    // Secteurs encore « Affecté » alors que des passages y ont été saisis : passés « En cours » (voir secteursADemarrer)
+    if (stats.secteursADemarrer?.length && !APP._demarrageEnCours && Date.now() - (APP._demarrageT || 0) > 60000) {
+      APP._demarrageEnCours = true; APP._demarrageT = Date.now();
+      demarrerSecteurs(stats.secteursADemarrer)
+        .catch(e => console.warn("Passage en cours des secteurs :", e?.message || e))
+        .finally(() => { APP._demarrageEnCours = false; });
+    }
+
     // Détection de nouveaux badges débloqués
     if (APP._badgesCache) {
       detecterNouveauxBadges(APP._badgesCache, badgesParEquipe).forEach(({ equipeId, badge }) => {
@@ -1118,7 +1118,7 @@ async function renderDashboard() {
         </div>
         <div class="equipes-ranking-grid">
           ${stats.parEquipe.map((eq, i) => {
-            const pct = pourcentCompletionEquipe(eq.id, secteursActuels);
+            const av = avancementEquipe(eq.id, secteursActuels), pct = av.pct;
             const palier = getPalier(pct);
             const badges = badgesParEquipe[eq.id] || [];
             return `
@@ -1126,13 +1126,13 @@ async function renderDashboard() {
               <div class="ranking-card-top">
                 <span class="ranking-pos">#${i+1}</span>
                 <span class="ranking-nom">${h(eq.nom)}</span>
-                <span class="ranking-palier" title="${palier.label} — ${pct}% terminé">${palier.icone}</span>
+                <span class="ranking-palier" title="${palier.label} — ${libelleAvancement(av)}">${palier.icone}</span>
               </div>
               <div class="ranking-montant">${formatMontant(eq.montant)}</div>
               <div class="ranking-bar-wrap">
                 <div class="ranking-bar" style="width:${stats.totalCollecte > 0 ? Math.round(eq.montant/stats.totalCollecte*100) : 0}%"></div>
               </div>
-              <div class="ranking-sub">${eq.nbPassages} passage(s) · ${pct}% terminé</div>
+              <div class="ranking-sub">${eq.nbPassages} passage(s) · ${pct}% ${av.boitesTotal > 0 ? "des boîtes traitées" : "terminé"}</div>
               ${badges.length > 0 ? `<div class="ranking-badges">${badges.map(b => `<span title="${b.nom} — ${b.description}">${b.icone}</span>`).join('')}</div>` : ''}
             </div>
           `;}).join('')}
@@ -3822,9 +3822,9 @@ function renderTerrainSecteurs(secteurs) {
       <div id="terrain-hors-secteur" class="terrain-hs"></div>`;
     return;
   }
-  const nbTotal = secteurs.length;
-  const nbTermines = secteurs.filter(s => s.statut === "termine").length;
-  const pct = Math.round((nbTermines / nbTotal) * 100);
+  // Avancement = boîtes traitées / boîtes des secteurs de l'équipe (un secteur clôturé compte pour toutes ses boîtes)
+  const av = avancementEquipe(APP.equipeId, secteurs);
+  const { pct, nbTermines, nbSecteurs: nbTotal } = av;
   const palier = getPalier(pct);
   const couleurBar = pct === 100 ? "#EAB308" : pct >= 75 ? "#F59E0B" : pct >= 50 ? "#9CA3AF" : pct >= 25 ? "#B45309" : "#EF4444";
   content.innerHTML = `
@@ -3836,7 +3836,7 @@ function renderTerrainSecteurs(secteurs) {
       <div class="terrain-progress-bar">
         <div class="terrain-progress-fill" style="width:${pct}%;background:${couleurBar};"></div>
       </div>
-      <div style="font-size:.78rem;color:var(--ardoise-mid);margin-top:6px;">${nbTermines} / ${nbTotal} secteur(s) terminé(s)</div>
+      <div style="font-size:.78rem;color:var(--ardoise-mid);margin-top:6px;">${av.boitesTotal > 0 ? `${av.boitesTraitees} / ${av.boitesTotal} boîtes traitées · ` : ""}${nbTermines} / ${nbTotal} secteur(s) terminé(s)</div>
     </div>
     <div id="terrain-relances"></div>
     ${geolocDisponible() && secteurs.length > 1 ? `
@@ -5572,7 +5572,7 @@ async function renderClassement() {
         <h2>Toutes les équipes</h2>
         <div class="equipes-ranking-grid">
           ${stats.parEquipe.map((eq, i) => {
-            const pct = pourcentCompletionEquipe(eq.id, secteurs);
+            const av = avancementEquipe(eq.id, secteurs), pct = av.pct;
             const palier = getPalier(pct);
             const badges = badgesParEquipe[eq.id] || [];
             return `<div class="ranking-card">
@@ -5580,11 +5580,11 @@ async function renderClassement() {
                 <span class="ranking-pos">#${i+1}</span>
                 <div class="avatar-initiales avatar-initiales--sm" style="background:${couleurEq(eq)}">${h(initialesEquipe(eq.nom))}</div>
                 <span class="ranking-nom">${h(eq.nom)}</span>
-                <span class="ranking-palier" title="${palier.label}">${palier.icone}</span>
+                <span class="ranking-palier" title="${palier.label} — ${libelleAvancement(av)}">${palier.icone}</span>
               </div>
               <div class="ranking-montant">${formatMontant(eq.montant)}</div>
               <div class="ranking-bar-wrap"><div class="ranking-bar" style="width:${pct}%"></div></div>
-              <div class="ranking-sub">${pct}% des secteurs terminés</div>
+              <div class="ranking-sub">${libelleAvancement(av)}</div>
               ${badges.length > 0
                 ? `<div class="ranking-badges">${badges.map(b => `<span title="${b.nom} — ${b.description}">${b.icone}</span>`).join('')}</div>`
                 : `<div class="ranking-badges ranking-badges--empty">Aucun badge pour l'instant</div>`}
@@ -5614,7 +5614,7 @@ async function renderClassement() {
 function renderPodiumPlace(eq, place, secteurs, couleur) {
   const hauteurs = { 1:"podium-place--1", 2:"podium-place--2", 3:"podium-place--3" };
   const medailles = { 1:"🥇", 2:"🥈", 3:"🥉" };
-  const pct = pourcentCompletionEquipe(eq.id, secteurs);
+  const pct = avancementEquipe(eq.id, secteurs).pct;
   return `<div class="podium-place ${hauteurs[place]}">
     <div class="podium-medaille">${medailles[place]}</div>
     <div class="avatar-initiales" style="background:${couleur};margin-bottom:var(--sp-2)">${h(initialesEquipe(eq.nom))}</div>

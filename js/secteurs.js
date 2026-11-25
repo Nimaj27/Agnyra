@@ -1,6 +1,6 @@
 // secteurs.js — Gestion des secteurs géographiques
-import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsLot, fsGet, fsGetRapide, fsQueryRapide, fsGetAllOrg, fsQuery, fsListen, fsListenOrg, organisationCourante, where } from "./firebase.js";
-import { planifierFusion, planifierAnnulationFusion } from "./geoloc.js";
+import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsLot, fsGet, fsGetRapide, fsQueryRapide, fsGetAllOrg, fsQuery, fsListen, fsListenOrg, organisationCourante, isOnline, where } from "./firebase.js";
+import { planifierFusion, planifierAnnulationFusion, nbFoyersSecteur, adresseComptee } from "./geoloc.js";
 import { COLLECTIONS as C2 } from "./firebase.js";
 
 export const STATUT_SECTEUR = { LIBRE:"libre", AFFECTE:"affecte", EN_COURS:"en_cours", TERMINE:"termine" };
@@ -20,6 +20,31 @@ export async function desaffecterEquipe(secteurId) {
 }
 export async function cloturerSecteur(id) { return fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.TERMINE, dateFin: new Date().toISOString() }); }
 export async function demarrerSecteur(id) { return fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.EN_COURS, dateDebut: new Date().toISOString() }); }
+
+// Un secteur passe « En cours » dès qu'une équipe y saisit un passage (avant, jamais : il restait « Affecté » jusqu'à
+// la clôture). Lecture rapide, puis écriture seulement si le secteur est encore « Affecté » : un secteur déjà en cours
+// ou clôturé n'est pas touché. Hors ligne on s'abstient (un cache périmé pourrait rouvrir un secteur clôturé entre-temps) :
+// le prochain passage en ligne, ou le tableau de bord de l'admin (demarrerSecteurs), s'en chargera.
+export async function demarrerSecteurSiBesoin(secteurId) {
+  if (!isOnline()) return false;
+  const secteur = await fsGetRapide(COLLECTIONS.SECTEURS, secteurId);
+  if (!secteur || secteur.statut !== STATUT_SECTEUR.AFFECTE) return false;
+  await fsUpdate(COLLECTIONS.SECTEURS, secteurId, { statut: STATUT_SECTEUR.EN_COURS, dateDebut: new Date().toISOString() });
+  return true;
+}
+// Rattrapage (tableau de bord admin) : secteurs encore « Affecté » qui ont déjà des passages ; liste { id, dateDebut }
+// (date du premier passage, voir secteursADemarrer dans tournee.js). Chaque secteur est relu juste avant d'écrire : un
+// secteur clôturé entre-temps n'est pas rouvert. Rend le nombre de secteurs passés « En cours ».
+export async function demarrerSecteurs(liste) {
+  let n = 0;
+  for (const { id, dateDebut } of liste) {
+    const secteur = await fsGet(COLLECTIONS.SECTEURS, id);
+    if (!secteur || secteur.statut !== STATUT_SECTEUR.AFFECTE) continue;
+    await fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.EN_COURS, dateDebut: dateDebut || new Date().toISOString() });
+    n++;
+  }
+  return n;
+}
 export async function lireSecteurs() { return fsGetAllOrg(COLLECTIONS.SECTEURS); }
 export async function secteursParEquipe(equipeId) {
   return fsQuery(COLLECTIONS.SECTEURS, where("equipeId", "==", equipeId));
@@ -156,6 +181,19 @@ export function trouverFusion(secteur, adresse) {
   const a = norm(adresse);
   return secteur.fusions.find(f =>
     norm(f.principale) === a || (f.secondaires||[]).some(s => norm(s) === a)) || null;
+}
+
+// ── Nombre réel de boîtes aux lettres d'un secteur ──
+// Adresses de la base d'adresses pour ses rues, plus les numéros ajoutés à la main, moins les adresses regroupées
+// (comptées une seule fois) et les adresses marquées inhabitées. Seules les adresses regroupées qui sont réellement des
+// boîtes de CE secteur sont retranchées : une adresse d'un autre secteur, ou mal saisie, ne retire rien ici.
+export function nbBoitesReelles(secteur) {
+  if (!secteur) return 0;
+  let n = nbFoyersSecteur(secteur);
+  n += Object.values(secteur.ruesComplements || {}).reduce((t, arr) => t + (arr || []).length, 0);
+  n -= new Set(adressesSecondaires(secteur).filter(a => adresseComptee(secteur, a)).map(normRue)).size;
+  n -= (secteur.inhabitees || []).length;
+  return Math.max(0, n);
 }
 
 // ── Adresses marquées inhabitées (retirées du décompte, définitif) ──

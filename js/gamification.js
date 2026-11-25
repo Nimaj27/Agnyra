@@ -1,4 +1,5 @@
 // gamification.js — Badges, paliers et classement ludique
+import { nbBoitesReelles } from "./secteurs.js";
 export const PALIERS = [
   { seuil:100, icone:"🏆", label:"Champion", couleur:"#EAB308" },
   { seuil:75,  icone:"🥇", label:"Or",       couleur:"#F59E0B" },
@@ -7,6 +8,28 @@ export const PALIERS = [
   { seuil:0,   icone:"🔰", label:"Débutant", couleur:"#6B7280" }
 ];
 export function getPalier(pct) { return PALIERS.find(p=>pct>=p.seuil)||PALIERS[PALIERS.length-1]; }
+// Avancement d'une équipe, pour la barre et le palier : boîtes traitées (dons, offerts, refus) sur les boîtes de ses
+// secteurs ; un secteur clôturé compte pour toutes ses boîtes. Une équipe à un seul secteur avance ainsi avec sa tournée
+// (avec le seul « secteurs terminés », elle restait à 0 % puis sautait à 100 %). Plafonné à 99 % tant que tout n'est pas
+// traité, et jamais 0 % dès qu'une boîte est traitée. Secteurs sans boîtes connues (rues non renseignées) : à défaut, part
+// des secteurs terminés. Rend { pct, nbSecteurs, nbTermines, boitesTotal, boitesTraitees }.
+export function avancementEquipe(equipeId, secteurs, nbBoites = nbBoitesReelles) {
+  const s = secteurs.filter(x => x.equipeId === equipeId);
+  const nbTermines = s.filter(x => x.statut === "termine").length;
+  let boitesTotal = 0, boitesTraitees = 0;
+  for (const x of s) {
+    const tot = Math.max(0, Number(nbBoites(x)) || 0);
+    boitesTotal += tot;
+    boitesTraitees += x.statut === "termine" ? tot : Math.min(Math.max(0, Number(x.nbFoyersVisites) || 0), tot);
+  }
+  let pct;
+  if (!s.length) pct = 0;
+  else if (boitesTotal <= 0) pct = Math.round((nbTermines / s.length) * 100);
+  else if (boitesTraitees >= boitesTotal) pct = 100;
+  else pct = boitesTraitees > 0 ? Math.min(99, Math.max(1, Math.round((boitesTraitees / boitesTotal) * 100))) : 0;
+  return { pct, nbSecteurs: s.length, nbTermines, boitesTotal, boitesTraitees };
+}
+// Part des secteurs de l'équipe réellement clôturés (badge « Mission accomplie »)
 export function pourcentCompletionEquipe(equipeId, secteurs) {
   const s = secteurs.filter(s=>s.equipeId===equipeId);
   if (!s.length) return 0;

@@ -1922,6 +1922,31 @@ async function desaffecterEquipe(secteurId) {
 }
 async function cloturerSecteur(id) { return fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.TERMINE, dateFin: new Date().toISOString() }); }
 async function demarrerSecteur(id) { return fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.EN_COURS, dateDebut: new Date().toISOString() }); }
+
+// Un secteur passe « En cours » dès qu'une équipe y saisit un passage (avant, jamais : il restait « Affecté » jusqu'à
+// la clôture). Lecture rapide, puis écriture seulement si le secteur est encore « Affecté » : un secteur déjà en cours
+// ou clôturé n'est pas touché. Hors ligne on s'abstient (un cache périmé pourrait rouvrir un secteur clôturé entre-temps) :
+// le prochain passage en ligne, ou le tableau de bord de l'admin (demarrerSecteurs), s'en chargera.
+async function demarrerSecteurSiBesoin(secteurId) {
+  if (!isOnline()) return false;
+  const secteur = await fsGetRapide(COLLECTIONS.SECTEURS, secteurId);
+  if (!secteur || secteur.statut !== STATUT_SECTEUR.AFFECTE) return false;
+  await fsUpdate(COLLECTIONS.SECTEURS, secteurId, { statut: STATUT_SECTEUR.EN_COURS, dateDebut: new Date().toISOString() });
+  return true;
+}
+// Rattrapage (tableau de bord admin) : secteurs encore « Affecté » qui ont déjà des passages ; liste { id, dateDebut }
+// (date du premier passage, voir secteursADemarrer dans tournee.js). Chaque secteur est relu juste avant d'écrire : un
+// secteur clôturé entre-temps n'est pas rouvert. Rend le nombre de secteurs passés « En cours ».
+async function demarrerSecteurs(liste) {
+  let n = 0;
+  for (const { id, dateDebut } of liste) {
+    const secteur = await fsGet(COLLECTIONS.SECTEURS, id);
+    if (!secteur || secteur.statut !== STATUT_SECTEUR.AFFECTE) continue;
+    await fsUpdate(COLLECTIONS.SECTEURS, id, { statut: STATUT_SECTEUR.EN_COURS, dateDebut: dateDebut || new Date().toISOString() });
+    n++;
+  }
+  return n;
+}
 async function lireSecteurs() { return fsGetAllOrg(COLLECTIONS.SECTEURS); }
 async function secteursParEquipe(equipeId) {
   return fsQuery(COLLECTIONS.SECTEURS, where("equipeId", "==", equipeId));
@@ -2058,6 +2083,19 @@ function trouverFusion(secteur, adresse) {
   const a = norm(adresse);
   return secteur.fusions.find(f =>
     norm(f.principale) === a || (f.secondaires||[]).some(s => norm(s) === a)) || null;
+}
+
+// ── Nombre réel de boîtes aux lettres d'un secteur ──
+// Adresses de la base d'adresses pour ses rues, plus les numéros ajoutés à la main, moins les adresses regroupées
+// (comptées une seule fois) et les adresses marquées inhabitées. Seules les adresses regroupées qui sont réellement des
+// boîtes de CE secteur sont retranchées : une adresse d'un autre secteur, ou mal saisie, ne retire rien ici.
+function nbBoitesReelles(secteur) {
+  if (!secteur) return 0;
+  let n = nbFoyersSecteur(secteur);
+  n += Object.values(secteur.ruesComplements || {}).reduce((t, arr) => t + (arr || []).length, 0);
+  n -= new Set(adressesSecondaires(secteur).filter(a => adresseComptee(secteur, a)).map(normRue)).size;
+  n -= (secteur.inhabitees || []).length;
+  return Math.max(0, n);
 }
 
 // ── Adresses marquées inhabitées (retirées du décompte, définitif) ──
@@ -2248,6 +2286,8 @@ async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, statut,
   const id = lot.ajouter(COLLECTIONS.PASSAGES, donnees);
   lot.modifier(COLLECTIONS.SECTEURS, secteurId, incrementsTotaux(null, donnees));
   await lot.valider();
+  // Premier passage d'un secteur « Affecté » : il passe « En cours » (sans attendre, sans jamais faire échouer la saisie)
+  demarrerSecteurSiBesoin(secteurId).catch(() => {});
   return { id };
 }
 
@@ -2428,7 +2468,23 @@ async function statsGlobalesTournee() {
   const nbSecteursTotal = secteurs.length;
   const avancement = nbSecteursTotal>0 ? Math.round((nbSecteursTermines/nbSecteursTotal)*100) : 0;
   const ecartsTotaux = ecartsTotauxSecteurs(secteurs, passages);
-  return { totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe, ecartsTotaux };
+  const aDemarrer = secteursADemarrer(secteurs, passages);
+  return { secteursADemarrer: aDemarrer, totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe, ecartsTotaux };
+}
+
+// ── Secteurs à passer « En cours » ───────────────────────────────
+// Secteurs encore « Affecté » alors que des passages y ont été saisis (le passage en cours se fait à la première saisie,
+// mais les saisies faites avant ce mécanisme, ou hors ligne, l'ont manqué). Rend [{ id, dateDebut }], la date étant celle
+// du premier passage. Les ventes hors secteur n'appartiennent à aucun secteur.
+function secteursADemarrer(secteurs, passages) {
+  const premier = new Map();                           // id secteur → date du premier passage ("" si inconnue)
+  for (const p of passages) {
+    if (!p.secteurId) continue;
+    const d = p.datePassage || "";
+    if (!premier.has(p.secteurId) || (d && (!premier.get(p.secteurId) || d < premier.get(p.secteurId)))) premier.set(p.secteurId, d);
+  }
+  return secteurs.filter(s => s.statut === "affecte" && premier.has(s.id))
+                 .map(s => ({ id: s.id, dateDebut: premier.get(s.id) || new Date().toISOString() }));
 }
 
 // ── Réconciliation des totaux de secteur ─────────────────────────
@@ -3231,6 +3287,28 @@ const PALIERS = [
   { seuil:0,   icone:"🔰", label:"Débutant", couleur:"#6B7280" }
 ];
 function getPalier(pct) { return PALIERS.find(p=>pct>=p.seuil)||PALIERS[PALIERS.length-1]; }
+// Avancement d'une équipe, pour la barre et le palier : boîtes traitées (dons, offerts, refus) sur les boîtes de ses
+// secteurs ; un secteur clôturé compte pour toutes ses boîtes. Une équipe à un seul secteur avance ainsi avec sa tournée
+// (avec le seul « secteurs terminés », elle restait à 0 % puis sautait à 100 %). Plafonné à 99 % tant que tout n'est pas
+// traité, et jamais 0 % dès qu'une boîte est traitée. Secteurs sans boîtes connues (rues non renseignées) : à défaut, part
+// des secteurs terminés. Rend { pct, nbSecteurs, nbTermines, boitesTotal, boitesTraitees }.
+function avancementEquipe(equipeId, secteurs, nbBoites = nbBoitesReelles) {
+  const s = secteurs.filter(x => x.equipeId === equipeId);
+  const nbTermines = s.filter(x => x.statut === "termine").length;
+  let boitesTotal = 0, boitesTraitees = 0;
+  for (const x of s) {
+    const tot = Math.max(0, Number(nbBoites(x)) || 0);
+    boitesTotal += tot;
+    boitesTraitees += x.statut === "termine" ? tot : Math.min(Math.max(0, Number(x.nbFoyersVisites) || 0), tot);
+  }
+  let pct;
+  if (!s.length) pct = 0;
+  else if (boitesTotal <= 0) pct = Math.round((nbTermines / s.length) * 100);
+  else if (boitesTraitees >= boitesTotal) pct = 100;
+  else pct = boitesTraitees > 0 ? Math.min(99, Math.max(1, Math.round((boitesTraitees / boitesTotal) * 100))) : 0;
+  return { pct, nbSecteurs: s.length, nbTermines, boitesTotal, boitesTraitees };
+}
+// Part des secteurs de l'équipe réellement clôturés (badge « Mission accomplie »)
 function pourcentCompletionEquipe(equipeId, secteurs) {
   const s = secteurs.filter(s=>s.equipeId===equipeId);
   if (!s.length) return 0;
@@ -4731,27 +4809,18 @@ function ja(value) {
   return h(JSON.stringify(String(value ?? "")));
 }
 
-// Nombre réel de boîtes aux lettres d'un secteur : adresses de la base pour ses
-// rues, plus les numéros ajoutés à la main, moins les adresses fusionnées
-// (comptées une seule fois) et les adresses marquées inhabitées.
-function nbBoitesReelles(secteur) {
-  if (!secteur) return 0;
-  let n = nbFoyersSecteur(secteur);
-  n += Object.values(secteur.ruesComplements || {}).reduce((t, arr) => t + (arr || []).length, 0);
-  n -= nbSecondairesComptees(secteur);
-  n -= (secteur.inhabitees || []).length;
-  return Math.max(0, n);
-}
-// Adresses regroupées derrière une autre (« Même boîte que… ») : seules celles qui sont réellement des boîtes de CE
-// secteur sont à retrancher. Une adresse d'un autre secteur, ou mal saisie, ne retire rien ici (avant, elle faisait
-// perdre une boîte de trop au secteur d'origine).
-function nbSecondairesComptees(secteur) {
-  return new Set(adressesSecondaires(secteur).filter(a => adresseComptee(secteur, a)).map(normAdr)).size;
-}
 // Rues du secteur absentes de la base d'adresses : saisies, mais non comptées.
 function nbRuesHorsBase(secteur) {
   const saisies = (secteur?.rues || []).length;
   return Math.max(0, saisies - ruesDuSecteur(secteur).length);
+}
+
+// Texte sous la barre d'avancement d'une équipe : « 62% des boîtes traitées · 1/3 secteurs terminés » (voir avancementEquipe)
+function libelleAvancement(av) {
+  const n = av.nbSecteurs, pl = n > 1 ? "s" : "";
+  return av.boitesTotal > 0
+    ? `${av.pct}% des boîtes traitées · ${av.nbTermines}/${n} secteur${pl} terminé${pl}`
+    : `${av.pct}% des secteurs terminés`;
 }
 
 function formatMontant(val) {
@@ -5356,6 +5425,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.19", date: "2026-11-25", texte: "Progression des équipes : la barre et le palier (🔰 🥉 🥈 🥇 🏆) se calculent désormais sur les boîtes traitées (dons, offerts, refus) par rapport aux boîtes des secteurs de l'équipe, et non plus sur le nombre de secteurs clôturés. Une équipe qui n'a qu'un secteur avance donc avec sa tournée, au lieu de rester à 0 % puis de passer d'un coup à 100 %. Un secteur clôturé compte pour toutes ses boîtes, et la barre n'atteint 100 % que lorsque tout est traité. Les badges 🏁 Mission accomplie et 🔥 Série de 3 restent liés à la clôture des secteurs. Par ailleurs, un secteur passe maintenant automatiquement « En cours » à la première saisie (il restait « Affecté » jusqu'à sa clôture)." },
   { version: "1.18", date: "2026-11-25", texte: "« Même boîte que… » : les adresses regroupées se choisissent désormais dans une liste au lieu d'être tapées (la rue est proposée dès les premières lettres, les fautes de frappe sont tolérées, puis on touche les numéros), ce qui évite les fautes de nom de rue. Une maison d'angle dont les numéros sont dans deux rues de deux secteurs différents est regroupée dans les deux secteurs : elle n'est comptée et visitée qu'une fois. Enfin, le nombre de boîtes d'un secteur ne retranche plus que les adresses regroupées qui s'y trouvent réellement (une adresse d'un autre secteur ou mal écrite faisait perdre une boîte de trop)." },
   { version: "1.17", date: "2026-11-17", texte: "Côté équipier : un lien « Nouveautés » en bas de l'accueil permet de relire ce qui a changé, sans repasser par l'écran de connexion. Côté admin : la page Équipes affiche la dernière saisie de chaque équipe et le nombre de saisies du jour (bouton « Actualiser ») ; la carte du tableau de bord propose d'exporter en CSV les rues et numéros qu'aucun secteur ne couvre, avec la ligne à coller dans « Rues / zones » ; l'import CSV des secteurs signale, avant d'écrire quoi que ce soit, les rues inconnues de la base d'adresses (avec la rue la plus proche) et les doublons." },
   { version: "1.16", date: "2026-11-16", texte: "Saisie plus fiable avec un réseau faible ou absent : l'écran n'attend plus la confirmation du serveur pour valider un passage (fini le bouton bloqué sur « … » et les doublons en retapant). Le passage est gardé sur l'appareil et envoyé dès que le réseau revient ; la pastille indique « ⏳ N » saisies en attente d'envoi, et une alerte prévient si le serveur en refuse une. Les totaux de chaque secteur sont désormais mis à jour de façon atomique, sans risque d'erreur quand deux équipiers saisissent en même temps, et le tableau de bord corrige tout seul un éventuel écart." },
@@ -5642,6 +5712,14 @@ async function renderDashboard() {
         .finally(() => { APP._reconcilEnCours = false; });
     }
 
+    // Secteurs encore « Affecté » alors que des passages y ont été saisis : passés « En cours » (voir secteursADemarrer)
+    if (stats.secteursADemarrer?.length && !APP._demarrageEnCours && Date.now() - (APP._demarrageT || 0) > 60000) {
+      APP._demarrageEnCours = true; APP._demarrageT = Date.now();
+      demarrerSecteurs(stats.secteursADemarrer)
+        .catch(e => console.warn("Passage en cours des secteurs :", e?.message || e))
+        .finally(() => { APP._demarrageEnCours = false; });
+    }
+
     // Détection de nouveaux badges débloqués
     if (APP._badgesCache) {
       detecterNouveauxBadges(APP._badgesCache, badgesParEquipe).forEach(({ equipeId, badge }) => {
@@ -5720,7 +5798,7 @@ async function renderDashboard() {
         </div>
         <div class="equipes-ranking-grid">
           ${stats.parEquipe.map((eq, i) => {
-            const pct = pourcentCompletionEquipe(eq.id, secteursActuels);
+            const av = avancementEquipe(eq.id, secteursActuels), pct = av.pct;
             const palier = getPalier(pct);
             const badges = badgesParEquipe[eq.id] || [];
             return `
@@ -5728,13 +5806,13 @@ async function renderDashboard() {
               <div class="ranking-card-top">
                 <span class="ranking-pos">#${i+1}</span>
                 <span class="ranking-nom">${h(eq.nom)}</span>
-                <span class="ranking-palier" title="${palier.label} — ${pct}% terminé">${palier.icone}</span>
+                <span class="ranking-palier" title="${palier.label} — ${libelleAvancement(av)}">${palier.icone}</span>
               </div>
               <div class="ranking-montant">${formatMontant(eq.montant)}</div>
               <div class="ranking-bar-wrap">
                 <div class="ranking-bar" style="width:${stats.totalCollecte > 0 ? Math.round(eq.montant/stats.totalCollecte*100) : 0}%"></div>
               </div>
-              <div class="ranking-sub">${eq.nbPassages} passage(s) · ${pct}% terminé</div>
+              <div class="ranking-sub">${eq.nbPassages} passage(s) · ${pct}% ${av.boitesTotal > 0 ? "des boîtes traitées" : "terminé"}</div>
               ${badges.length > 0 ? `<div class="ranking-badges">${badges.map(b => `<span title="${b.nom} — ${b.description}">${b.icone}</span>`).join('')}</div>` : ''}
             </div>
           `;}).join('')}
@@ -8424,9 +8502,9 @@ function renderTerrainSecteurs(secteurs) {
       <div id="terrain-hors-secteur" class="terrain-hs"></div>`;
     return;
   }
-  const nbTotal = secteurs.length;
-  const nbTermines = secteurs.filter(s => s.statut === "termine").length;
-  const pct = Math.round((nbTermines / nbTotal) * 100);
+  // Avancement = boîtes traitées / boîtes des secteurs de l'équipe (un secteur clôturé compte pour toutes ses boîtes)
+  const av = avancementEquipe(APP.equipeId, secteurs);
+  const { pct, nbTermines, nbSecteurs: nbTotal } = av;
   const palier = getPalier(pct);
   const couleurBar = pct === 100 ? "#EAB308" : pct >= 75 ? "#F59E0B" : pct >= 50 ? "#9CA3AF" : pct >= 25 ? "#B45309" : "#EF4444";
   content.innerHTML = `
@@ -8438,7 +8516,7 @@ function renderTerrainSecteurs(secteurs) {
       <div class="terrain-progress-bar">
         <div class="terrain-progress-fill" style="width:${pct}%;background:${couleurBar};"></div>
       </div>
-      <div style="font-size:.78rem;color:var(--ardoise-mid);margin-top:6px;">${nbTermines} / ${nbTotal} secteur(s) terminé(s)</div>
+      <div style="font-size:.78rem;color:var(--ardoise-mid);margin-top:6px;">${av.boitesTotal > 0 ? `${av.boitesTraitees} / ${av.boitesTotal} boîtes traitées · ` : ""}${nbTermines} / ${nbTotal} secteur(s) terminé(s)</div>
     </div>
     <div id="terrain-relances"></div>
     ${geolocDisponible() && secteurs.length > 1 ? `
@@ -10174,7 +10252,7 @@ async function renderClassement() {
         <h2>Toutes les équipes</h2>
         <div class="equipes-ranking-grid">
           ${stats.parEquipe.map((eq, i) => {
-            const pct = pourcentCompletionEquipe(eq.id, secteurs);
+            const av = avancementEquipe(eq.id, secteurs), pct = av.pct;
             const palier = getPalier(pct);
             const badges = badgesParEquipe[eq.id] || [];
             return `<div class="ranking-card">
@@ -10182,11 +10260,11 @@ async function renderClassement() {
                 <span class="ranking-pos">#${i+1}</span>
                 <div class="avatar-initiales avatar-initiales--sm" style="background:${couleurEq(eq)}">${h(initialesEquipe(eq.nom))}</div>
                 <span class="ranking-nom">${h(eq.nom)}</span>
-                <span class="ranking-palier" title="${palier.label}">${palier.icone}</span>
+                <span class="ranking-palier" title="${palier.label} — ${libelleAvancement(av)}">${palier.icone}</span>
               </div>
               <div class="ranking-montant">${formatMontant(eq.montant)}</div>
               <div class="ranking-bar-wrap"><div class="ranking-bar" style="width:${pct}%"></div></div>
-              <div class="ranking-sub">${pct}% des secteurs terminés</div>
+              <div class="ranking-sub">${libelleAvancement(av)}</div>
               ${badges.length > 0
                 ? `<div class="ranking-badges">${badges.map(b => `<span title="${b.nom} — ${b.description}">${b.icone}</span>`).join('')}</div>`
                 : `<div class="ranking-badges ranking-badges--empty">Aucun badge pour l'instant</div>`}
@@ -10216,7 +10294,7 @@ async function renderClassement() {
 function renderPodiumPlace(eq, place, secteurs, couleur) {
   const hauteurs = { 1:"podium-place--1", 2:"podium-place--2", 3:"podium-place--3" };
   const medailles = { 1:"🥇", 2:"🥈", 3:"🥉" };
-  const pct = pourcentCompletionEquipe(eq.id, secteurs);
+  const pct = avancementEquipe(eq.id, secteurs).pct;
   return `<div class="podium-place ${hauteurs[place]}">
     <div class="podium-medaille">${medailles[place]}</div>
     <div class="avatar-initiales" style="background:${couleur};margin-bottom:var(--sp-2)">${h(initialesEquipe(eq.nom))}</div>

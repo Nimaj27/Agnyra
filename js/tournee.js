@@ -1,6 +1,6 @@
 // tournee.js — Logique métier tournée calendriers
 import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsLot, fsGet, fsGetRapide, fsGetAll, fsGetAllOrg, fsQuery, fsQueryRapide, fsListen, fsListenOrg, organisationCourante, increment, isOnline, where, serverTimestamp } from "./firebase.js";
-import { recalculerTotauxSecteur } from "./secteurs.js";
+import { recalculerTotauxSecteur, demarrerSecteurSiBesoin } from "./secteurs.js";
 
 export const STATUT_PASSAGE = { DON:"don", OFFERT:"offert", REFUSE:"refuse", ABSENT:"absent", RELANCE:"relance" };
 export const STATUT_PASSAGE_LABEL = { don:"Don collecté", offert:"Calendrier offert", refuse:"A refusé", absent:"Absent", relance:"À relancer" };
@@ -108,6 +108,8 @@ export async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, 
   const id = lot.ajouter(COLLECTIONS.PASSAGES, donnees);
   lot.modifier(COLLECTIONS.SECTEURS, secteurId, incrementsTotaux(null, donnees));
   await lot.valider();
+  // Premier passage d'un secteur « Affecté » : il passe « En cours » (sans attendre, sans jamais faire échouer la saisie)
+  demarrerSecteurSiBesoin(secteurId).catch(() => {});
   return { id };
 }
 
@@ -288,7 +290,23 @@ export async function statsGlobalesTournee() {
   const nbSecteursTotal = secteurs.length;
   const avancement = nbSecteursTotal>0 ? Math.round((nbSecteursTermines/nbSecteursTotal)*100) : 0;
   const ecartsTotaux = ecartsTotauxSecteurs(secteurs, passages);
-  return { totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe, ecartsTotaux };
+  const aDemarrer = secteursADemarrer(secteurs, passages);
+  return { secteursADemarrer: aDemarrer, totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe, ecartsTotaux };
+}
+
+// ── Secteurs à passer « En cours » ───────────────────────────────
+// Secteurs encore « Affecté » alors que des passages y ont été saisis (le passage en cours se fait à la première saisie,
+// mais les saisies faites avant ce mécanisme, ou hors ligne, l'ont manqué). Rend [{ id, dateDebut }], la date étant celle
+// du premier passage. Les ventes hors secteur n'appartiennent à aucun secteur.
+export function secteursADemarrer(secteurs, passages) {
+  const premier = new Map();                           // id secteur → date du premier passage ("" si inconnue)
+  for (const p of passages) {
+    if (!p.secteurId) continue;
+    const d = p.datePassage || "";
+    if (!premier.has(p.secteurId) || (d && (!premier.get(p.secteurId) || d < premier.get(p.secteurId)))) premier.set(p.secteurId, d);
+  }
+  return secteurs.filter(s => s.statut === "affecte" && premier.has(s.id))
+                 .map(s => ({ id: s.id, dateDebut: premier.get(s.id) || new Date().toISOString() }));
 }
 
 // ── Réconciliation des totaux de secteur ─────────────────────────

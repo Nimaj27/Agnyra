@@ -647,6 +647,39 @@ se **tapaient à la main** (`prompt`), d'où les fautes de nom de rue.
 - Limites : un foyer dont une adresse n'est dans aucun secteur reste « regroupé » mais cette adresse ne retranche rien nulle part ;
   `inhabitees` n'a pas reçu le même traitement (une adresse marquée inhabitée est toujours choisie dans la grille d'un secteur).
 
+## Avancement des équipes aux boîtes traitées, secteur « En cours » automatique (25/11)
+
+Constat de l'utilisateur sur la page Classement : une équipe qui a commencé son secteur reste à « 0 % des secteurs terminés ». Le
+pourcentage était (secteurs clôturés ÷ secteurs de l'équipe) : pour les équipes à **un seul secteur** (24 sur 31 dans la v7) il ne
+valait que 0 % ou 100 % (jamais 🥉/🥈/🥇, saut direct à 🏆), et le statut « En cours » n'était posé par rien (`demarrerSecteur` n'a
+jamais été appelée) : un secteur travaillé restait « Affecté » jusqu'au bouton « ✅ Clôturer » de l'admin.
+- **Avancement** (`avancementEquipe`, `gamification.js`) : boîtes traitées ÷ boîtes des secteurs de l'équipe. Traitées = `nbFoyersVisites`
+  du secteur (dons, offerts, refus — pas les absents, comme « boîtes restantes » de l'accueil équipier), plafonnées au nombre de boîtes
+  du secteur ; un secteur **clôturé** compte pour toutes ses boîtes ; boîtes = `nbBoitesReelles`. Plafonné à **99 %** tant que tout
+  n'est pas traité, **jamais 0 %** dès qu'une boîte l'est ; secteurs sans boîtes connues (rues non renseignées) : repli sur la part de
+  secteurs terminés. Rend `{ pct, nbSecteurs, nbTermines, boitesTotal, boitesTraitees }`. Les paliers (0/25/50/75/100) sont inchangés mais
+  mesurent désormais l'avancement. Utilisé par la page Classement, son podium, le widget classement du tableau de bord et « Ma progression »
+  de l'accueil équipier ; texte : `libelleAvancement` (« 40% des boîtes traitées · 1/3 secteurs terminés »).
+- **Badges** : 🏁 Mission accomplie et 🔥 Série de 3 restent liés à la clôture réelle (`pourcentCompletionEquipe` = part de secteurs
+  clôturés, conservée) : 100 % des boîtes sans clôture ne donne pas 🏁.
+- `nbBoitesReelles` (et la règle « seules les adresses regroupées réellement comptées dans le secteur sont retranchées ») a été **déplacée de
+  `app.js` vers `secteurs.js`** pour être partagée avec `gamification.js` ; `app.js` l'importe.
+- **« En cours » automatique** : après un passage enregistré, `ajouterPassage` appelle (sans attendre ni faire échouer la saisie)
+  `demarrerSecteurSiBesoin` (`secteurs.js`) : lecture rapide du secteur puis `statut:"en_cours"` + `dateDebut` **seulement s'il est encore
+  « Affecté »** (un secteur déjà en cours ou clôturé n'est jamais touché). **Hors ligne on s'abstient** : un cache périmé pourrait rouvrir un
+  secteur clôturé entre-temps ; le passage suivant en ligne, ou le rattrapage ci-dessous, s'en charge.
+- **Rattrapage** (saisies faites avant ce mécanisme ou hors ligne) : `statsGlobalesTournee()` renvoie `secteursADemarrer` (secteurs « Affecté »
+  ayant déjà des passages, avec la date du premier passage ; les ventes hors secteur sont ignorées) ; le tableau de bord appelle
+  `demarrerSecteurs` (au plus 1×/min) qui **relit chaque secteur avant d'écrire** (un secteur clôturé entre-temps n'est pas rouvert).
+- Effets de bord à connaître : (1) l'alerte du tableau de bord « Secteurs en cours depuis plus de 3 jours » (rappel de clôture), jusque-là
+  toujours vide, devient active et listera les secteurs commencés depuis ≥ 3 jours et non clôturés ; (2) l'import CSV et « Affecter par nom »
+  ne réaffectent pas les secteurs « en cours » : un secteur commencé est donc protégé ; (3) `affecterEquipe` repasse le secteur à « Affecté »
+  (la première saisie suivante le remet « En cours »).
+- Testé : formule (26 vérifications, Firestore simulé : un seul secteur, plusieurs secteurs pondérés, plafonds, repli, vrai décompte de
+  Pacy 1, badges, premier passage, passages suivants, secteur clôturé, hors ligne, rattrapage et relecture avant écriture) et l'accueil
+  équipier dans Chromium. **Non testé dans l'application déployée.** Le guide équipier décrit encore « Ma progression » comme la part des
+  secteurs terminés : à mettre à jour.
+
 ## Structure du code
 
 Build modulaire → fichier unique. Ne jamais éditer `index-monofichier.html`
