@@ -619,6 +619,34 @@ Quatre petits chantiers livrés ensemble (v1.17).
   40 lignes, texte piégé échappé), carte avant/après identique. **Non testé dans l'application déployée** (écran terrain réel, import
   CSV avec un vrai Firestore).
 
+## Regroupements d'adresses « Même boîte que… » : choix dans une liste, décompte juste, deux secteurs (25/11)
+
+Constat de l'utilisateur : un foyer peut occuper 3 numéros répartis sur 2 rues (2 + 1). Le regroupement existait déjà
+(`secteur.fusions`, voir `fusionnerAdresses`), mais deux défauts mesurés sur des secteurs réels de la v7 : une adresse d'une rue
+d'un **autre secteur**, ou **mal saisie**, retranchait quand même une boîte au secteur d'origine (−2 au lieu de −1) ; et les adresses
+se **tapaient à la main** (`prompt`), d'où les fautes de nom de rue.
+- **Décompte** : `adresseComptee(secteur, "12 Rue X")` (`geoloc.js`) applique exactement la règle de `nbFoyersSecteur` + les
+  compléments ajoutés à la main (vérifié : mêmes totaux sur les 39 secteurs de la v7). `nbBoitesReelles` (`app.js`) ne retranche plus
+  que les adresses regroupées qui sont réellement des boîtes de CE secteur (`nbSecondairesComptees`, sans doublon).
+- **Deux secteurs** : une adresse regroupée qui se trouve dans un autre secteur de la même commune (même `cleBaseCommune`) y est reprise
+  par une fusion **miroir** (`{ principale, secondaires, miroir:true }` dans `fusions` de ce secteur) : elle n'y est plus comptée ni
+  proposée dans la grille, la boîte n'est visitée que depuis le secteur d'origine. `planifierFusion` / `planifierAnnulationFusion`
+  (`geoloc.js`, fonctions pures) calculent les fusions à écrire ; `fusionnerAdresses` / `annulerFusion` (`secteurs.js`) les écrivent en
+  **un lot atomique** (`fsLot`), y compris hors ligne. Les voisins sont lus par `lireSecteursVoisins` (`fsQueryRapide` : serveur, cache
+  après 1 s). Refaire un regroupement avec la même adresse principale retire les anciens miroirs ; « séparer » les retire tous ; refaire
+  le même regroupement ne change rien. Une adresse d'une **autre commune** n'est jamais touchée.
+- **Choix des adresses** : `mnFusionner` ouvre la fenêtre `#modal-fusion` : rues du secteur proposées d'emblée, puis suggestions dès les
+  premières lettres (`suggererRues` : rues contenant tous les mots saisis, à défaut rues proches à une lettre près), pastille « ce
+  secteur » / nom d'un autre secteur / « aucun secteur » ; on touche ensuite les numéros de la base (+ numéros ajoutés à la main) ; adresses
+  choisies en pastilles retirables ; l'adresse de départ n'est pas sélectionnable ; note quand une adresse est dans un autre secteur.
+  Seule la liste des rues est redessinée à la frappe (le champ garde le focus et le clavier du téléphone). Un numéro absent de la base se
+  crée d'abord avec « Ajouter un numéro ou un nom ». Toutes les données affichées passent par `h()`.
+- Testé : logique sur la vraie base (Node + Firestore simulé : même secteur, deux secteurs, ré-regroupement, annulation, adresse
+  inexistante, idempotence, autre commune) et fenêtre réelle de `app.js` dans Chromium (suggestions, faute de frappe, focus conservé,
+  texte piégé échappé, échec serveur, succès). **Non testé dans l'application déployée.**
+- Limites : un foyer dont une adresse n'est dans aucun secteur reste « regroupé » mais cette adresse ne retranche rien nulle part ;
+  `inhabitees` n'a pas reçu le même traitement (une adresse marquée inhabitée est toujours choisie dans la grille d'un secteur).
+
 ## Structure du code
 
 Build modulaire → fichier unique. Ne jamais éditer `index-monofichier.html`

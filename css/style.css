@@ -1560,3 +1560,27 @@ body {
 .rd-btn:hover { border-color: var(--rouge); }
 .rd-btn--sugg span { font-weight: 400; color: var(--ardoise-mid); }
 .rd-note { margin-top: 4px; color: var(--ardoise-mid); font-size: .76rem; }
+
+/* Regrouper des adresses (« Même boîte que… ») : choix de la rue avec suggestions, puis des numéros */
+.fu-modal { max-height: 90vh; overflow-y: auto; }
+.fu-aide { margin: 0 0 var(--sp-3); font-size: .85rem; color: var(--ardoise-mid); }
+.fu-choisies { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 30px; margin-bottom: var(--sp-3); }
+.fu-vide { font-size: .8rem; color: var(--ardoise-mid); }
+.fu-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--vert-light); color: #14532D; font-size: .82rem; font-weight: 600; }
+.fu-chip em { font-style: normal; font-weight: 500; opacity: .8; }
+.fu-chip button { border: 0; background: transparent; padding: 0 4px; font: inherit; color: inherit; cursor: pointer; }
+.fu-note { margin: var(--sp-2) 0; font-size: .78rem; color: var(--ardoise-mid); }
+.fu-rues { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; margin-top: var(--sp-2); overflow-y: auto; }
+.fu-rues-titre { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ardoise-mid); }
+.fu-rue { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1.5px solid var(--gris-bord); border-radius: var(--r-sm); background: var(--blanc); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.fu-rue:hover { border-color: var(--rouge); }
+.fu-tag { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; font-size: .7rem; font-weight: 700; }
+.fu-tag--ici { background: var(--vert-light); color: #14532D; }
+.fu-tag--autre { background: var(--jaune-light); color: #78350F; }
+.fu-tag--aucun { background: #F3F4F6; color: var(--ardoise-mid); }
+.fu-rue-active { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: var(--sp-2) 0; }
+.fu-numeros { display: flex; flex-wrap: wrap; gap: 6px; max-height: 32vh; overflow-y: auto; }
+.fu-num { min-width: 44px; padding: 8px 10px; border: 1.5px solid var(--gris-bord); border-radius: var(--r-sm); background: var(--blanc); font: inherit; font-weight: 700; cursor: pointer; }
+.fu-num--on { background: var(--vert); border-color: var(--vert); color: #fff; }
+.fu-num--autre { border-style: dashed; border-color: var(--orange); }
+.fu-num:disabled { opacity: .45; cursor: not-allowed; }

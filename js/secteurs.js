@@ -1,5 +1,6 @@
 // secteurs.js — Gestion des secteurs géographiques
-import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsGet, fsGetRapide, fsGetAllOrg, fsQuery, fsListen, fsListenOrg, where } from "./firebase.js";
+import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsLot, fsGet, fsGetRapide, fsQueryRapide, fsGetAllOrg, fsQuery, fsListen, fsListenOrg, organisationCourante, where } from "./firebase.js";
+import { planifierFusion, planifierAnnulationFusion } from "./geoloc.js";
 import { COLLECTIONS as C2 } from "./firebase.js";
 
 export const STATUT_SECTEUR = { LIBRE:"libre", AFFECTE:"affecte", EN_COURS:"en_cours", TERMINE:"termine" };
@@ -106,37 +107,39 @@ export function lireComplements(secteur, rue) {
 // ── Fusions d'adresses (une seule boîte pour plusieurs adresses) ──
 // Format : [{ principale: "11 Rue du Moulin", secondaires: ["13 Rue du Moulin", "2 Rue des Soupirs"] }]
 // Définitives : conservées d'une tournée à l'autre.
+// Une adresse regroupée peut se trouver dans une rue d'un AUTRE secteur de la commune (maison d'angle entre deux
+// secteurs) : ce secteur reçoit alors une fusion « miroir » ({ …, miroir:true }) pour qu'elle n'y soit ni comptée
+// ni proposée aux équipiers. Le calcul est dans geoloc.js (planifierFusion) ; ici, seulement la lecture et
+// l'écriture, en un lot atomique (tout est écrit ou rien, y compris hors ligne).
+
+// Secteurs de la caserne (celui d'origine en premier), lus vite (cache après 1 s) : suffisant pour préparer un
+// regroupement ou en proposer les adresses.
+export async function lireSecteursVoisins(origine) {
+  let tous = [];
+  try { tous = await fsQueryRapide(COLLECTIONS.SECTEURS, where("organisationId", "==", organisationCourante())); }
+  catch (e) { /* voisins illisibles : on regroupe au moins dans le secteur d'origine */ }
+  return [origine, ...tous.filter(s => s.id !== origine.id)];
+}
+async function ecrireFusions(plan) {
+  const ids = Object.keys(plan);
+  if (!ids.length) return;
+  const lot = fsLot();
+  for (const id of ids) lot.modifier(COLLECTIONS.SECTEURS, id, { fusions: plan[id] });
+  await lot.valider();
+}
 
 export async function fusionnerAdresses(secteurId, principale, secondaires) {
-  const secteur = await fsGet(COLLECTIONS.SECTEURS, secteurId);
-  if (!secteur) throw new Error("Secteur introuvable");
-  const fusions = secteur.fusions || [];
-
-  const norm = s => (s||'').toLowerCase().normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
-
-  // Retirer ces adresses d'éventuelles fusions existantes
-  const toutes = [principale, ...secondaires].map(norm);
-  let nettoyees = fusions
-    .filter(f => !toutes.includes(norm(f.principale)))
-    .map(f => ({
-      ...f,
-      secondaires: (f.secondaires||[]).filter(s => !toutes.includes(norm(s)))
-    }))
-    .filter(f => f.secondaires.length > 0);
-
-  nettoyees.push({ principale, secondaires: [...new Set(secondaires)] });
-  await fsUpdate(COLLECTIONS.SECTEURS, secteurId, { fusions: nettoyees });
-  return nettoyees.length;
+  const origine = await lireSecteur(secteurId, { rapide: true });
+  if (!origine) throw new Error("Secteur introuvable");
+  const plan = planifierFusion(await lireSecteursVoisins(origine), secteurId, principale, secondaires);
+  await ecrireFusions(plan);
+  return (plan[secteurId] || origine.fusions || []).length;
 }
 
 export async function annulerFusion(secteurId, principale) {
-  const secteur = await fsGet(COLLECTIONS.SECTEURS, secteurId);
-  if (!secteur) throw new Error("Secteur introuvable");
-  const norm = s => (s||'').toLowerCase().normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
-  const fusions = (secteur.fusions || []).filter(f => norm(f.principale) !== norm(principale));
-  await fsUpdate(COLLECTIONS.SECTEURS, secteurId, { fusions });
+  const origine = await lireSecteur(secteurId, { rapide: true });
+  if (!origine) throw new Error("Secteur introuvable");
+  await ecrireFusions(planifierAnnulationFusion(await lireSecteursVoisins(origine), secteurId, principale));
 }
 
 // Renvoie la liste plate de toutes les adresses secondaires (à masquer des grilles)

@@ -298,6 +298,116 @@ export function nbFoyersSecteur(secteur) {
   return n;
 }
 
+// ── Regroupements d'adresses (« Même boîte que… ») ──────────────────────────────
+// Numéros normalisés de la base d'adresses par index de rue : Map(index → Set), calculée une fois par commune.
+const _numerosNormalises = new WeakMap();
+function numerosNormalises(data) {
+  let m = _numerosNormalises.get(data);
+  if (!m) {
+    m = new Map();
+    for (const p of data.p) { if (!m.has(p[1])) m.set(p[1], new Set()); m.get(p[1]).add(normRueG(p[0])); }
+    _numerosNormalises.set(data, m);
+  }
+  return m;
+}
+
+// Une adresse « 12 Rue des Soupirs » compte-t-elle comme boîte dans ce secteur ? Oui si son numéro figure dans la
+// base d'adresses pour une rue du secteur (dans la limite des numéros autorisés par la ligne [..] du secteur), ou
+// s'il a été ajouté à la main. Même règle que nbFoyersSecteur + les compléments : sert à ne retrancher d'un
+// regroupement que les adresses réellement comptées dans le secteur.
+export function adresseComptee(secteur, adresse) {
+  const m = String(adresse || "").trim().match(/^(\S+)\s+(.+)$/);
+  if (!secteur || !secteur.commune || !m) return false;
+  const nNum = normRueG(m[1]), nRue = normRueG(m[2]);
+  if ((secteur.ruesComplements?.[nRue] || []).some(x => normRueG(x) === nNum)) return true;   // numéro ajouté à la main
+  const data = donneesCommune(secteur.commune);
+  if (!data) return false;
+  const idx = indicesRue(data, nRue);
+  const nums = numerosNormalises(data);
+  if (!idx.some(i => nums.get(i)?.has(nNum))) return false;                                    // pas dans la base
+  if (!secteur.rues || secteur.rues.length === 0) return !estCommuneAlias(secteur.commune);   // sans rues : toute la commune
+  let autorises = null;                                  // null = la rue n'est pas dans le secteur
+  for (const entree of secteur.rues) {
+    const { rue, numeros } = parseRueEntry(entree);
+    if (!indicesRue(data, normRueG(rue)).some(i => idx.includes(i))) continue;
+    if (numeros === null) return true;
+    autorises = [...(autorises || []), ...numeros.map(normRueG)];
+  }
+  return !!autorises && autorises.includes(nNum);
+}
+
+// Rues de la commune dont le nom ressemble à la saisie (quelques lettres suffisent) : d'abord celles qui
+// contiennent tous les mots saisis, à défaut les rues proches (faute de frappe). Rend [{ rue, nb }] où `nb` est
+// le nombre d'adresses de la base ; les noms sont ceux des grilles (nom de la rue de référence).
+export function suggererRues(commune, saisie, limite = 8) {
+  const data = commune ? donneesCommune(commune) : null;
+  const mots = String(saisie || "").split(/\s+/).map(normRueG).filter(Boolean);
+  if (!data || !mots.length) return [];
+  const nb = {};
+  data.p.forEach(p => { nb[p[1]] = (nb[p[1]] || 0) + 1; });
+  const rues = Object.keys(nb).map(Number).map(i => ({ rue: data.r[i], nb: nb[i], norm: normRueG(data.r[i]) }));
+  const contient = rues.filter(r => mots.every(w => r.norm.includes(w)))
+    .sort((a, b) => (a.norm.startsWith(mots[0]) ? 0 : 1) - (b.norm.startsWith(mots[0]) ? 0 : 1) || a.rue.localeCompare(b.rue, "fr", { numeric: true }));
+  if (contient.length) return contient.slice(0, limite).map(({ rue, nb: n }) => ({ rue, nb: n }));
+  const motsSaisis = coeurRue(saisie).split(" ").filter(Boolean), normSaisi = mots.join("");
+  return rues
+    .map(r => ({ rue: r.rue, nb: r.nb, score: scoreRue(motsSaisis, coeurRue(r.rue).split(" ").filter(Boolean), normSaisi, r.norm) }))
+    .filter(r => r.score > 0.5)
+    .sort((a, b) => b.score - a.score || b.nb - a.nb)
+    .slice(0, limite).map(({ rue, nb: n }) => ({ rue, nb: n }));
+}
+
+// Plan d'un regroupement d'adresses (une seule boîte aux lettres) : rend { idSecteur: nouvelles fusions } pour
+// les seuls secteurs dont les fusions changent. Fonction pure ; l'écriture est dans secteurs.js.
+// - le secteur d'origine garde la fusion complète { principale, secondaires } ;
+// - une adresse comptée dans un AUTRE secteur de la même commune y est reprise par une fusion « miroir »
+//   ({ principale, secondaires, miroir:true }) : elle n'y est plus comptée ni proposée aux équipiers, la boîte
+//   n'existe ainsi qu'une fois et n'est visitée que par une équipe ;
+// - les adresses regroupées sont retirées de toute autre fusion des secteurs de la commune.
+export function planifierFusion(secteurs, origineId, principale, secondaires) {
+  const origine = secteurs.find(s => s.id === origineId);
+  if (!origine) throw new Error("Secteur introuvable");
+  const base = cleBaseCommune(origine.commune);
+  const voisins = secteurs.filter(s => s.id === origineId || cleBaseCommune(s.commune) === base);
+  const vues = new Set([normRueG(principale)]);
+  const autres = [];
+  for (const a of secondaires || []) {
+    const c = normRueG(a);
+    if (c && !vues.has(c)) { vues.add(c); autres.push(a); }
+  }
+  const chezVoisin = new Map();                        // id d'un autre secteur → adresses qu'il compte
+  for (const a of autres) {
+    if (adresseComptee(origine, a)) continue;
+    const proprietaire = voisins.find(s => s.id !== origineId && adresseComptee(s, a));
+    if (proprietaire) chezVoisin.set(proprietaire.id, [...(chezVoisin.get(proprietaire.id) || []), a]);
+  }
+  const resultat = {};
+  for (const s of voisins) {
+    const fusions = (s.fusions || [])
+      .filter(f => !vues.has(normRueG(f.principale)))
+      .map(f => ({ ...f, secondaires: (f.secondaires || []).filter(x => !vues.has(normRueG(x))) }))
+      .filter(f => f.secondaires.length > 0);
+    if (autres.length && s.id === origineId) fusions.push({ principale, secondaires: autres });
+    else if (chezVoisin.has(s.id)) fusions.push({ principale, secondaires: chezVoisin.get(s.id), miroir: true });
+    if (JSON.stringify(fusions) !== JSON.stringify(s.fusions || [])) resultat[s.id] = fusions;
+  }
+  return resultat;
+}
+
+// Plan de l'annulation d'un regroupement : retire la fusion de cette adresse principale dans le secteur d'origine
+// et ses miroirs dans les autres secteurs de la commune. Même forme de résultat que planifierFusion.
+export function planifierAnnulationFusion(secteurs, origineId, principale) {
+  const origine = secteurs.find(s => s.id === origineId);
+  if (!origine) throw new Error("Secteur introuvable");
+  const base = cleBaseCommune(origine.commune), cle = normRueG(principale);
+  const resultat = {};
+  for (const s of secteurs.filter(x => x.id === origineId || cleBaseCommune(x.commune) === base)) {
+    const fusions = (s.fusions || []).filter(f => normRueG(f.principale) !== cle);
+    if (fusions.length !== (s.fusions || []).length) resultat[s.id] = fusions;
+  }
+  return resultat;
+}
+
 // Clé de la base d'adresses d'une commune (résout les communes déléguées) : deux communes
 // de même clé partagent les mêmes adresses.
 export function cleBaseCommune(commune) {

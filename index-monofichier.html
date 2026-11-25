@@ -1577,6 +1577,30 @@ body {
 .rd-btn:hover { border-color: var(--rouge); }
 .rd-btn--sugg span { font-weight: 400; color: var(--ardoise-mid); }
 .rd-note { margin-top: 4px; color: var(--ardoise-mid); font-size: .76rem; }
+
+/* Regrouper des adresses (« Même boîte que… ») : choix de la rue avec suggestions, puis des numéros */
+.fu-modal { max-height: 90vh; overflow-y: auto; }
+.fu-aide { margin: 0 0 var(--sp-3); font-size: .85rem; color: var(--ardoise-mid); }
+.fu-choisies { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 30px; margin-bottom: var(--sp-3); }
+.fu-vide { font-size: .8rem; color: var(--ardoise-mid); }
+.fu-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border-radius: 999px; background: var(--vert-light); color: #14532D; font-size: .82rem; font-weight: 600; }
+.fu-chip em { font-style: normal; font-weight: 500; opacity: .8; }
+.fu-chip button { border: 0; background: transparent; padding: 0 4px; font: inherit; color: inherit; cursor: pointer; }
+.fu-note { margin: var(--sp-2) 0; font-size: .78rem; color: var(--ardoise-mid); }
+.fu-rues { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; margin-top: var(--sp-2); overflow-y: auto; }
+.fu-rues-titre { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ardoise-mid); }
+.fu-rue { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1.5px solid var(--gris-bord); border-radius: var(--r-sm); background: var(--blanc); font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.fu-rue:hover { border-color: var(--rouge); }
+.fu-tag { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; font-size: .7rem; font-weight: 700; }
+.fu-tag--ici { background: var(--vert-light); color: #14532D; }
+.fu-tag--autre { background: var(--jaune-light); color: #78350F; }
+.fu-tag--aucun { background: #F3F4F6; color: var(--ardoise-mid); }
+.fu-rue-active { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: var(--sp-2) 0; }
+.fu-numeros { display: flex; flex-wrap: wrap; gap: 6px; max-height: 32vh; overflow-y: auto; }
+.fu-num { min-width: 44px; padding: 8px 10px; border: 1.5px solid var(--gris-bord); border-radius: var(--r-sm); background: var(--blanc); font: inherit; font-weight: 700; cursor: pointer; }
+.fu-num--on { background: var(--vert); border-color: var(--vert); color: #fff; }
+.fu-num--autre { border-style: dashed; border-color: var(--orange); }
+.fu-num:disabled { opacity: .45; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -1985,37 +2009,39 @@ function lireComplements(secteur, rue) {
 // ── Fusions d'adresses (une seule boîte pour plusieurs adresses) ──
 // Format : [{ principale: "11 Rue du Moulin", secondaires: ["13 Rue du Moulin", "2 Rue des Soupirs"] }]
 // Définitives : conservées d'une tournée à l'autre.
+// Une adresse regroupée peut se trouver dans une rue d'un AUTRE secteur de la commune (maison d'angle entre deux
+// secteurs) : ce secteur reçoit alors une fusion « miroir » ({ …, miroir:true }) pour qu'elle n'y soit ni comptée
+// ni proposée aux équipiers. Le calcul est dans geoloc.js (planifierFusion) ; ici, seulement la lecture et
+// l'écriture, en un lot atomique (tout est écrit ou rien, y compris hors ligne).
+
+// Secteurs de la caserne (celui d'origine en premier), lus vite (cache après 1 s) : suffisant pour préparer un
+// regroupement ou en proposer les adresses.
+async function lireSecteursVoisins(origine) {
+  let tous = [];
+  try { tous = await fsQueryRapide(COLLECTIONS.SECTEURS, where("organisationId", "==", organisationCourante())); }
+  catch (e) { /* voisins illisibles : on regroupe au moins dans le secteur d'origine */ }
+  return [origine, ...tous.filter(s => s.id !== origine.id)];
+}
+async function ecrireFusions(plan) {
+  const ids = Object.keys(plan);
+  if (!ids.length) return;
+  const lot = fsLot();
+  for (const id of ids) lot.modifier(COLLECTIONS.SECTEURS, id, { fusions: plan[id] });
+  await lot.valider();
+}
 
 async function fusionnerAdresses(secteurId, principale, secondaires) {
-  const secteur = await fsGet(COLLECTIONS.SECTEURS, secteurId);
-  if (!secteur) throw new Error("Secteur introuvable");
-  const fusions = secteur.fusions || [];
-
-  const norm = s => (s||'').toLowerCase().normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
-
-  // Retirer ces adresses d'éventuelles fusions existantes
-  const toutes = [principale, ...secondaires].map(norm);
-  let nettoyees = fusions
-    .filter(f => !toutes.includes(norm(f.principale)))
-    .map(f => ({
-      ...f,
-      secondaires: (f.secondaires||[]).filter(s => !toutes.includes(norm(s)))
-    }))
-    .filter(f => f.secondaires.length > 0);
-
-  nettoyees.push({ principale, secondaires: [...new Set(secondaires)] });
-  await fsUpdate(COLLECTIONS.SECTEURS, secteurId, { fusions: nettoyees });
-  return nettoyees.length;
+  const origine = await lireSecteur(secteurId, { rapide: true });
+  if (!origine) throw new Error("Secteur introuvable");
+  const plan = planifierFusion(await lireSecteursVoisins(origine), secteurId, principale, secondaires);
+  await ecrireFusions(plan);
+  return (plan[secteurId] || origine.fusions || []).length;
 }
 
 async function annulerFusion(secteurId, principale) {
-  const secteur = await fsGet(COLLECTIONS.SECTEURS, secteurId);
-  if (!secteur) throw new Error("Secteur introuvable");
-  const norm = s => (s||'').toLowerCase().normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
-  const fusions = (secteur.fusions || []).filter(f => norm(f.principale) !== norm(principale));
-  await fsUpdate(COLLECTIONS.SECTEURS, secteurId, { fusions });
+  const origine = await lireSecteur(secteurId, { rapide: true });
+  if (!origine) throw new Error("Secteur introuvable");
+  await ecrireFusions(planifierAnnulationFusion(await lireSecteursVoisins(origine), secteurId, principale));
 }
 
 // Renvoie la liste plate de toutes les adresses secondaires (à masquer des grilles)
@@ -3901,6 +3927,116 @@ function nbFoyersSecteur(secteur) {
   return n;
 }
 
+// ── Regroupements d'adresses (« Même boîte que… ») ──────────────────────────────
+// Numéros normalisés de la base d'adresses par index de rue : Map(index → Set), calculée une fois par commune.
+const _numerosNormalises = new WeakMap();
+function numerosNormalises(data) {
+  let m = _numerosNormalises.get(data);
+  if (!m) {
+    m = new Map();
+    for (const p of data.p) { if (!m.has(p[1])) m.set(p[1], new Set()); m.get(p[1]).add(normRueG(p[0])); }
+    _numerosNormalises.set(data, m);
+  }
+  return m;
+}
+
+// Une adresse « 12 Rue des Soupirs » compte-t-elle comme boîte dans ce secteur ? Oui si son numéro figure dans la
+// base d'adresses pour une rue du secteur (dans la limite des numéros autorisés par la ligne [..] du secteur), ou
+// s'il a été ajouté à la main. Même règle que nbFoyersSecteur + les compléments : sert à ne retrancher d'un
+// regroupement que les adresses réellement comptées dans le secteur.
+function adresseComptee(secteur, adresse) {
+  const m = String(adresse || "").trim().match(/^(\S+)\s+(.+)$/);
+  if (!secteur || !secteur.commune || !m) return false;
+  const nNum = normRueG(m[1]), nRue = normRueG(m[2]);
+  if ((secteur.ruesComplements?.[nRue] || []).some(x => normRueG(x) === nNum)) return true;   // numéro ajouté à la main
+  const data = donneesCommune(secteur.commune);
+  if (!data) return false;
+  const idx = indicesRue(data, nRue);
+  const nums = numerosNormalises(data);
+  if (!idx.some(i => nums.get(i)?.has(nNum))) return false;                                    // pas dans la base
+  if (!secteur.rues || secteur.rues.length === 0) return !estCommuneAlias(secteur.commune);   // sans rues : toute la commune
+  let autorises = null;                                  // null = la rue n'est pas dans le secteur
+  for (const entree of secteur.rues) {
+    const { rue, numeros } = parseRueEntry(entree);
+    if (!indicesRue(data, normRueG(rue)).some(i => idx.includes(i))) continue;
+    if (numeros === null) return true;
+    autorises = [...(autorises || []), ...numeros.map(normRueG)];
+  }
+  return !!autorises && autorises.includes(nNum);
+}
+
+// Rues de la commune dont le nom ressemble à la saisie (quelques lettres suffisent) : d'abord celles qui
+// contiennent tous les mots saisis, à défaut les rues proches (faute de frappe). Rend [{ rue, nb }] où `nb` est
+// le nombre d'adresses de la base ; les noms sont ceux des grilles (nom de la rue de référence).
+function suggererRues(commune, saisie, limite = 8) {
+  const data = commune ? donneesCommune(commune) : null;
+  const mots = String(saisie || "").split(/\s+/).map(normRueG).filter(Boolean);
+  if (!data || !mots.length) return [];
+  const nb = {};
+  data.p.forEach(p => { nb[p[1]] = (nb[p[1]] || 0) + 1; });
+  const rues = Object.keys(nb).map(Number).map(i => ({ rue: data.r[i], nb: nb[i], norm: normRueG(data.r[i]) }));
+  const contient = rues.filter(r => mots.every(w => r.norm.includes(w)))
+    .sort((a, b) => (a.norm.startsWith(mots[0]) ? 0 : 1) - (b.norm.startsWith(mots[0]) ? 0 : 1) || a.rue.localeCompare(b.rue, "fr", { numeric: true }));
+  if (contient.length) return contient.slice(0, limite).map(({ rue, nb: n }) => ({ rue, nb: n }));
+  const motsSaisis = coeurRue(saisie).split(" ").filter(Boolean), normSaisi = mots.join("");
+  return rues
+    .map(r => ({ rue: r.rue, nb: r.nb, score: scoreRue(motsSaisis, coeurRue(r.rue).split(" ").filter(Boolean), normSaisi, r.norm) }))
+    .filter(r => r.score > 0.5)
+    .sort((a, b) => b.score - a.score || b.nb - a.nb)
+    .slice(0, limite).map(({ rue, nb: n }) => ({ rue, nb: n }));
+}
+
+// Plan d'un regroupement d'adresses (une seule boîte aux lettres) : rend { idSecteur: nouvelles fusions } pour
+// les seuls secteurs dont les fusions changent. Fonction pure ; l'écriture est dans secteurs.js.
+// - le secteur d'origine garde la fusion complète { principale, secondaires } ;
+// - une adresse comptée dans un AUTRE secteur de la même commune y est reprise par une fusion « miroir »
+//   ({ principale, secondaires, miroir:true }) : elle n'y est plus comptée ni proposée aux équipiers, la boîte
+//   n'existe ainsi qu'une fois et n'est visitée que par une équipe ;
+// - les adresses regroupées sont retirées de toute autre fusion des secteurs de la commune.
+function planifierFusion(secteurs, origineId, principale, secondaires) {
+  const origine = secteurs.find(s => s.id === origineId);
+  if (!origine) throw new Error("Secteur introuvable");
+  const base = cleBaseCommune(origine.commune);
+  const voisins = secteurs.filter(s => s.id === origineId || cleBaseCommune(s.commune) === base);
+  const vues = new Set([normRueG(principale)]);
+  const autres = [];
+  for (const a of secondaires || []) {
+    const c = normRueG(a);
+    if (c && !vues.has(c)) { vues.add(c); autres.push(a); }
+  }
+  const chezVoisin = new Map();                        // id d'un autre secteur → adresses qu'il compte
+  for (const a of autres) {
+    if (adresseComptee(origine, a)) continue;
+    const proprietaire = voisins.find(s => s.id !== origineId && adresseComptee(s, a));
+    if (proprietaire) chezVoisin.set(proprietaire.id, [...(chezVoisin.get(proprietaire.id) || []), a]);
+  }
+  const resultat = {};
+  for (const s of voisins) {
+    const fusions = (s.fusions || [])
+      .filter(f => !vues.has(normRueG(f.principale)))
+      .map(f => ({ ...f, secondaires: (f.secondaires || []).filter(x => !vues.has(normRueG(x))) }))
+      .filter(f => f.secondaires.length > 0);
+    if (autres.length && s.id === origineId) fusions.push({ principale, secondaires: autres });
+    else if (chezVoisin.has(s.id)) fusions.push({ principale, secondaires: chezVoisin.get(s.id), miroir: true });
+    if (JSON.stringify(fusions) !== JSON.stringify(s.fusions || [])) resultat[s.id] = fusions;
+  }
+  return resultat;
+}
+
+// Plan de l'annulation d'un regroupement : retire la fusion de cette adresse principale dans le secteur d'origine
+// et ses miroirs dans les autres secteurs de la commune. Même forme de résultat que planifierFusion.
+function planifierAnnulationFusion(secteurs, origineId, principale) {
+  const origine = secteurs.find(s => s.id === origineId);
+  if (!origine) throw new Error("Secteur introuvable");
+  const base = cleBaseCommune(origine.commune), cle = normRueG(principale);
+  const resultat = {};
+  for (const s of secteurs.filter(x => x.id === origineId || cleBaseCommune(x.commune) === base)) {
+    const fusions = (s.fusions || []).filter(f => normRueG(f.principale) !== cle);
+    if (fusions.length !== (s.fusions || []).length) resultat[s.id] = fusions;
+  }
+  return resultat;
+}
+
 // Clé de la base d'adresses d'une commune (résout les communes déléguées) : deux communes
 // de même clé partagent les mêmes adresses.
 function cleBaseCommune(commune) {
@@ -4602,9 +4738,15 @@ function nbBoitesReelles(secteur) {
   if (!secteur) return 0;
   let n = nbFoyersSecteur(secteur);
   n += Object.values(secteur.ruesComplements || {}).reduce((t, arr) => t + (arr || []).length, 0);
-  n -= adressesSecondaires(secteur).length;
+  n -= nbSecondairesComptees(secteur);
   n -= (secteur.inhabitees || []).length;
   return Math.max(0, n);
+}
+// Adresses regroupées derrière une autre (« Même boîte que… ») : seules celles qui sont réellement des boîtes de CE
+// secteur sont à retrancher. Une adresse d'un autre secteur, ou mal saisie, ne retire rien ici (avant, elle faisait
+// perdre une boîte de trop au secteur d'origine).
+function nbSecondairesComptees(secteur) {
+  return new Set(adressesSecondaires(secteur).filter(a => adresseComptee(secteur, a)).map(normAdr)).size;
 }
 // Rues du secteur absentes de la base d'adresses : saisies, mais non comptées.
 function nbRuesHorsBase(secteur) {
@@ -5214,6 +5356,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.18", date: "2026-11-25", texte: "« Même boîte que… » : les adresses regroupées se choisissent désormais dans une liste au lieu d'être tapées (la rue est proposée dès les premières lettres, les fautes de frappe sont tolérées, puis on touche les numéros), ce qui évite les fautes de nom de rue. Une maison d'angle dont les numéros sont dans deux rues de deux secteurs différents est regroupée dans les deux secteurs : elle n'est comptée et visitée qu'une fois. Enfin, le nombre de boîtes d'un secteur ne retranche plus que les adresses regroupées qui s'y trouvent réellement (une adresse d'un autre secteur ou mal écrite faisait perdre une boîte de trop)." },
   { version: "1.17", date: "2026-11-17", texte: "Côté équipier : un lien « Nouveautés » en bas de l'accueil permet de relire ce qui a changé, sans repasser par l'écran de connexion. Côté admin : la page Équipes affiche la dernière saisie de chaque équipe et le nombre de saisies du jour (bouton « Actualiser ») ; la carte du tableau de bord propose d'exporter en CSV les rues et numéros qu'aucun secteur ne couvre, avec la ligne à coller dans « Rues / zones » ; l'import CSV des secteurs signale, avant d'écrire quoi que ce soit, les rues inconnues de la base d'adresses (avec la rue la plus proche) et les doublons." },
   { version: "1.16", date: "2026-11-16", texte: "Saisie plus fiable avec un réseau faible ou absent : l'écran n'attend plus la confirmation du serveur pour valider un passage (fini le bouton bloqué sur « … » et les doublons en retapant). Le passage est gardé sur l'appareil et envoyé dès que le réseau revient ; la pastille indique « ⏳ N » saisies en attente d'envoi, et une alerte prévient si le serveur en refuse une. Les totaux de chaque secteur sont désormais mis à jour de façon atomique, sans risque d'erreur quand deux équipiers saisissent en même temps, et le tableau de bord corrige tout seul un éventuel écart." },
   { version: "1.15", date: "2026-11-16", texte: "Côté équipier : sous l'objectif d'un secteur (« 🎯 Objectif du secteur X / N calendriers »), un compteur séparé « 🧭 + N hors secteur » indique les calendriers vendus hors secteur par l'équipe. Ils ne sont pas comptés dans l'objectif du secteur, puisqu'ils n'appartiennent à aucun secteur." },
@@ -9666,31 +9809,149 @@ window.mnInhabitee = async (valeur) => {
   } catch(e) { toast("Erreur : " + e.message, "error"); }
 };
 
-// Fusionne l'adresse courante avec d'autres (même boîte aux lettres)
-window.mnFusionner = async () => {
+// Regroupe l'adresse courante avec d'autres (même boîte aux lettres). Les adresses se CHOISISSENT dans une liste au
+// lieu d'être tapées : la rue est proposée dès les premières lettres (fautes de frappe tolérées), puis on touche les
+// numéros de la base d'adresses. Une adresse peut être dans une rue d'un autre secteur (maison d'angle) : elle est
+// alors regroupée aussi dans ce secteur (voir planifierFusion, geoloc.js).
+window.mnFusionner = () => {
   const ctx = window._mnCtx;
   if (!ctx) return;
+  const secteur = ctx.secteur;
+  let modal = document.getElementById("modal-fusion");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "modal-fusion"; modal.className = "modal hidden";
+    document.body.appendChild(modal);
+  }
+  const choisies = [];                 // adresses choisies : « 2 Rue des Soupirs »
+  let rueActive = null;                // rue dont on affiche les numéros
+  let saisie = "";                     // texte de la recherche de rue
+  let voisins = [secteur];             // secteurs de la commune, complétés en arrière-plan (pour situer les adresses)
 
-  const v = prompt(
-    `Regrouper avec « ${ctx.adresse} »\n\n` +
-    `Saisis les autres adresses qui partagent la même boîte aux lettres.\n` +
-    `Une par ligne ou séparées par des virgules.\n\n` +
-    `Exemples :\n` +
-    `  13 Rue du Moulin\n` +
-    `  2 Rue des Soupirs\n\n` +
-    `Ces adresses disparaîtront des grilles (regroupement définitif, modifiable).`
-  );
-  if (!v || !v.trim()) return;
+  const cle = normAdr;
+  const ruesDe = new Map();            // id secteur → noms de rues normalisés (mémoïsé)
+  const ruesDuVoisin = (v) => {
+    if (!ruesDe.has(v.id)) {
+      ruesDe.set(v.id, new Set([
+        ...ruesDuSecteur(v).map(r => cle(r.rue)),
+        ...(v.rues || []).map(e => cle(String(e).replace(/\s*\[[^\]]*\]\s*$/, "")))
+      ]));
+    }
+    return ruesDe.get(v.id);
+  };
+  const autreSecteur = (adresse) => voisins.find(v => v.id !== secteur.id && adresseComptee(v, adresse)) || null;
+  const etiquetteRue = (rue) => {
+    const k = cle(rue);
+    if (ruesDuVoisin(secteur).has(k)) return `<span class="fu-tag fu-tag--ici">ce secteur</span>`;
+    const autres = voisins.filter(v => v.id !== secteur.id && ruesDuVoisin(v).has(k)).map(v => v.nom);
+    return autres.length
+      ? `<span class="fu-tag fu-tag--autre">${h(autres.slice(0, 2).join(", "))}</span>`
+      : `<span class="fu-tag fu-tag--aucun">aucun secteur</span>`;
+  };
+  const ordreNumeros = (a, b) => {
+    const na = parseInt(a), nb = parseInt(b);
+    if (isNaN(na) && isNaN(nb)) return String(a).localeCompare(String(b));
+    if (isNaN(na)) return 1;
+    if (isNaN(nb)) return -1;
+    return na - nb || String(a).localeCompare(String(b));
+  };
 
-  const secondaires = v.split(/[,\n]/).map(x => x.trim()).filter(Boolean);
-  if (secondaires.length === 0) return;
+  // Rues proposées : celles du secteur tant que rien n'est tapé, sinon les rues qui ressemblent à la saisie
+  const htmlPropositions = () => {
+    let propositions = [];
+    const sectRues = ruesTerrain(secteur);
+    if (!saisie.trim()) {
+      propositions = sectRues.map(r => r.rue);
+    } else {
+      const q = cle(saisie);
+      propositions = suggererRues(secteur.commune, saisie, 8).map(r => r.rue);
+      for (const r of sectRues) if (r.horsBase && cle(r.rue).includes(q) && !propositions.includes(r.rue)) propositions.push(r.rue);
+    }
+    return `${saisie.trim() ? "" : `<div class="fu-rues-titre">Rues de ce secteur</div>`}
+      ${propositions.length ? propositions.map(r => `<button type="button" class="fu-rue" data-fu-rue="${h(r)}">${h(r)} ${etiquetteRue(r)}</button>`).join("")
+        : `<p class="fu-note">Aucune rue ne ressemble à « ${h(saisie)} ». Essaie un autre mot ou une autre orthographe.</p>`}`;
+  };
 
-  try {
-    await fusionnerAdresses(ctx.secteurId, ctx.adresse, secondaires);
-    document.getElementById("modal-num")?.classList.add("hidden");
-    toast(`${secondaires.length + 1} adresses regroupées ✅`, "success");
-    rafraichirModeRue();
-  } catch(e) { toast("Erreur : " + e.message, "error"); }
+  const dessiner = () => {
+    const principale = cle(ctx.adresse);
+    // Pastilles des adresses choisies
+    const pastilles = choisies.map((a, i) => {
+      const autre = autreSecteur(a);
+      return `<span class="fu-chip">${h(a)}${autre ? ` <em>· secteur ${h(autre.nom)}</em>` : ""}<button type="button" data-fu-retirer="${i}" aria-label="Retirer ${h(a)}">✕</button></span>`;
+    }).join("");
+    const voisines = [...new Set(choisies.map(autreSecteur).filter(Boolean).map(v => v.nom))];
+    // Numéros de la rue choisie (base d'adresses + numéros ajoutés à la main dans ce secteur)
+    let numeros = [];
+    if (rueActive) {
+      try { numeros = numerosDeRue(secteur.commune, rueActive); } catch (e) { /* rue hors base */ }
+      numeros = [...new Set([...numeros, ...lireComplements(secteur, rueActive)])].sort(ordreNumeros);
+    }
+    modal.innerHTML = `
+      <div class="modal-inner fu-modal">
+        <h2>🔗 Même boîte que « ${h(ctx.adresse)} »</h2>
+        <p class="fu-aide">Cherche la rue, puis touche les numéros qui partagent cette boîte aux lettres. Ces adresses disparaîtront des grilles (regroupement modifiable : « séparer »).</p>
+        <div class="fu-choisies">${pastilles || `<span class="fu-vide">Aucune adresse choisie pour l'instant.</span>`}</div>
+        ${voisines.length ? `<p class="fu-note">ℹ️ Une adresse choisie est dans le secteur ${h(voisines.join(", "))} : elle y sera regroupée aussi (retirée du décompte et des grilles), la boîte ne sera visitée que depuis ici.</p>` : ""}
+        ${rueActive ? `
+          <div class="fu-rue-active"><strong>${h(rueActive)}</strong> ${etiquetteRue(rueActive)}
+            <button type="button" class="mn-lien" data-fu-changer>changer de rue</button></div>
+          ${numeros.length ? `<div class="fu-numeros">${numeros.map(n => {
+            const adr = `${n} ${rueActive}`, on = choisies.some(c => cle(c) === cle(adr)), moi = cle(adr) === principale;
+            const autre = autreSecteur(adr);
+            return `<button type="button" class="fu-num${on ? " fu-num--on" : ""}${autre ? " fu-num--autre" : ""}" data-fu-num="${h(n)}" ${moi ? "disabled" : ""}
+                      title="${moi ? "Adresse de départ" : autre ? `Secteur ${h(autre.nom)}` : ""}">${h(n)}</button>`;
+          }).join("")}</div>
+          <p class="fu-note">Un numéro manque ? Ferme cette fenêtre et ajoute-le avec « Ajouter un numéro ou un nom ».</p>`
+          : `<p class="fu-note">Aucun numéro connu pour cette rue : ajoute-les d'abord avec « Ajouter un numéro ou un nom ».</p>`}
+        ` : `
+          <input id="fu-rue" class="input" placeholder="🔍 Rue : quelques lettres suffisent" autocomplete="off" value="${h(saisie)}">
+          <div id="fu-rues" class="fu-rues">${htmlPropositions()}</div>`}
+        <div class="modal-actions">
+          <button type="button" id="fu-valider" class="btn btn--primary" ${choisies.length ? "" : "disabled"} data-fu-valider>${choisies.length ? `Regrouper ${choisies.length + 1} adresses` : "Regrouper"}</button>
+          <button type="button" class="btn btn--ghost" data-fu-fermer>Annuler</button>
+        </div>
+      </div>`;
+  };
+
+  // Pendant la frappe, seule la liste des rues est redessinée : le champ garde son focus (et le clavier du téléphone)
+  modal.oninput = (e) => {
+    if (e.target.id !== "fu-rue") return;
+    saisie = e.target.value;
+    const zone = document.getElementById("fu-rues");
+    if (zone) zone.innerHTML = htmlPropositions();
+  };
+  modal.onclick = async (e) => {
+    const t = e.target.closest("button");
+    if (!t) return;
+    if (t.dataset.fuRue !== undefined) { rueActive = t.dataset.fuRue; dessiner(); return; }
+    if (t.dataset.fuChanger !== undefined) { rueActive = null; dessiner(); return; }
+    if (t.dataset.fuNum !== undefined) {
+      const adr = `${t.dataset.fuNum} ${rueActive}`;
+      const i = choisies.findIndex(c => cle(c) === cle(adr));
+      if (i >= 0) choisies.splice(i, 1); else choisies.push(adr);
+      dessiner(); return;
+    }
+    if (t.dataset.fuRetirer !== undefined) { choisies.splice(Number(t.dataset.fuRetirer), 1); dessiner(); return; }
+    if (t.dataset.fuFermer !== undefined) { modal.classList.add("hidden"); modal.onclick = modal.oninput = null; return; }
+    if (t.dataset.fuValider !== undefined && choisies.length) {
+      setLoading(t, true);
+      try {
+        await fusionnerAdresses(ctx.secteurId, ctx.adresse, choisies);
+        modal.classList.add("hidden"); modal.onclick = modal.oninput = null;
+        document.getElementById("modal-num")?.classList.add("hidden");
+        toast(`${choisies.length + 1} adresses regroupées ✅`, "success");
+        rafraichirModeRue();
+      } catch (err) {
+        setLoading(t, false);
+        toast("Erreur : " + err.message, "error");
+      }
+    }
+  };
+
+  modal.classList.remove("hidden");
+  dessiner();
+  // Les autres secteurs de la commune servent à situer les adresses : lus en arrière-plan, sans retarder la fenêtre
+  lireSecteursVoisins(secteur).then(liste => { voisins = liste; if (!modal.classList.contains("hidden")) dessiner(); }).catch(() => {});
 };
 
 // Annule un regroupement
