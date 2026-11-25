@@ -24,7 +24,7 @@ import {
   ecouterSecteurs, ecouterSecteursEquipe,
   lireSecteur, lireSecteurs, statsGlobales, secteursParEquipe,
   ajouterComplements, retirerComplement, lireComplements,
-  fusionnerAdresses, annulerFusion, adressesSecondaires, trouverFusion, lireSecteursVoisins, nbBoitesReelles, demarrerSecteurs,
+  fusionnerAdresses, annulerFusion, adressesSecondaires, trouverFusion, lireSecteursVoisins, nbBoitesReelles, demarrerSecteurs, NB_PASSAGES_MAX, sansReponseDefinitif,
   marquerInhabitee, estInhabitee,
   enregistrerNoteAdresse, lireNoteAdresse, toutesLesNotes,
   enregistrerRemise, supprimerRemise, totalRemis,
@@ -745,6 +745,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.20", date: "2026-11-25", texte: "Foyers absents : au 3ème passage, un foyer encore absent est désormais compté comme traité (boîtes traitées et restantes, avancement de l'équipe, totaux du secteur) et retiré de la liste des relances. Il garde le statut « Absent » dans les passages. Avant le 3ème passage, rien ne change : un foyer absent reste à revoir et n'est pas compté comme traité. La fenêtre de relance prévient au 3ème passage." },
   { version: "1.19", date: "2026-11-25", texte: "Progression des équipes : la barre et le palier (🔰 🥉 🥈 🥇 🏆) se calculent désormais sur les boîtes traitées (dons, offerts, refus) par rapport aux boîtes des secteurs de l'équipe, et non plus sur le nombre de secteurs clôturés. Une équipe qui n'a qu'un secteur avance donc avec sa tournée, au lieu de rester à 0 % puis de passer d'un coup à 100 %. Un secteur clôturé compte pour toutes ses boîtes, et la barre n'atteint 100 % que lorsque tout est traité. Les badges 🏁 Mission accomplie et 🔥 Série de 3 restent liés à la clôture des secteurs. Par ailleurs, un secteur passe maintenant automatiquement « En cours » à la première saisie (il restait « Affecté » jusqu'à sa clôture)." },
   { version: "1.18", date: "2026-11-25", texte: "« Même boîte que… » : les adresses regroupées se choisissent désormais dans une liste au lieu d'être tapées (la rue est proposée dès les premières lettres, les fautes de frappe sont tolérées, puis on touche les numéros), ce qui évite les fautes de nom de rue. Une maison d'angle dont les numéros sont dans deux rues de deux secteurs différents est regroupée dans les deux secteurs : elle n'est comptée et visitée qu'une fois. Enfin, le nombre de boîtes d'un secteur ne retranche plus que les adresses regroupées qui s'y trouvent réellement (une adresse d'un autre secteur ou mal écrite faisait perdre une boîte de trop)." },
   { version: "1.17", date: "2026-11-17", texte: "Côté équipier : un lien « Nouveautés » en bas de l'accueil permet de relire ce qui a changé, sans repasser par l'écran de connexion. Côté admin : la page Équipes affiche la dernière saisie de chaque équipe et le nombre de saisies du jour (bouton « Actualiser ») ; la carte du tableau de bord propose d'exporter en CSV les rues et numéros qu'aucun secteur ne couvre, avec la ligne à coller dans « Rues / zones » ; l'import CSV des secteurs signale, avant d'écrire quoi que ce soit, les rues inconnues de la base d'adresses (avec la rue la plus proche) et les doublons." },
@@ -2369,6 +2370,8 @@ window.traiterRelance = async (passageId, secteurId) => {
   const p = passages.find(x => x.id === passageId);
   if (!p) { toast("Passage introuvable", "error"); return; }
 
+  // 3ᵉ passage (NB_PASSAGES_MAX) : un foyer encore absent est compté comme traité et n'est plus relancé
+  const dernierPassage = (p.nbPassages || 1) + 1 >= NB_PASSAGES_MAX;
   const modal = document.getElementById("modal-relance");
   modal.innerHTML = `
     <div class="modal-inner">
@@ -2394,9 +2397,11 @@ window.traiterRelance = async (passageId, secteurId) => {
       </div>
 
       <div id="rl-absent" class="absent-details">
-        <label class="checkbox-label">
+        ${dernierPassage
+          ? `<p class="rl-dernier">🔔 ${libellePassage((p.nbPassages || 1) + 1)} : si le foyer est encore absent, il sera compté comme traité et retiré des relances.</p>`
+          : `<label class="checkbox-label">
           <input type="checkbox" id="rl-encore" checked> Garder dans la liste des relances
-        </label>
+        </label>`}
       </div>
 
       <label class="label">Note</label>
@@ -2419,7 +2424,7 @@ window.traiterRelance = async (passageId, secteurId) => {
       const st = window._rlStatut;
       const montant = parseFloat(document.getElementById("rl-montant")?.value || "0");
       const note = document.getElementById("rl-note").value.trim();
-      const encore = document.getElementById("rl-encore")?.checked;
+      const encore = !!document.getElementById("rl-encore")?.checked;   // absente au 3ᵉ passage : pas de case, donc faux
 
       if (st === "don" && (!montant || montant <= 0)) {
         toast("Saisis le montant", "error"); setLoading(btn, false); return;
@@ -2438,7 +2443,9 @@ window.traiterRelance = async (passageId, secteurId) => {
       tracer(ACTIONS.MODIFICATION, { avant: p, apres: { adresse: p.adresse, statut: st, montant: st === "don" ? Number(montant) : 0 },
                                      contexte: "relance", auteur: auteurCourant() });
       toast(st === "don" ? `Don de ${formatMontant(montant)} enregistré ✅`
-            : st === "refuse" ? "Refus enregistré" : "Relance mise à jour", "success");
+            : st === "refuse" ? "Refus enregistré"
+            : (st === "absent" && dernierPassage) ? `${libellePassage((p.nbPassages || 1) + 1)} sans réponse : foyer compté comme traité`
+            : "Relance mise à jour", "success");
       document.getElementById("modal-relance")?.classList.add("hidden");
       // Rafraîchir la bonne vue selon le contexte
       if (document.getElementById("relances-list")) {
@@ -4346,9 +4353,11 @@ window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
       </div>
 
       <div id="cp-absent-details" class="absent-details ${(p.statut === 'absent' || p.statut === 'relance') ? '' : 'hidden'}">
-        <label class="checkbox-label">
+        ${(estRelance ? (p.nbPassages || 1) + 1 : (p.nbPassages || 1)) >= NB_PASSAGES_MAX
+          ? `<p class="rl-dernier">🔔 ${NB_PASSAGES_MAX} passages sans réponse : le foyer est compté comme traité et n'est plus relancé.</p>`
+          : `<label class="checkbox-label">
           <input type="checkbox" id="cp-relance" ${p.aRelancer ? 'checked' : ''}> À relancer
-        </label>
+        </label>`}
       </div>
 
       <label class="label">Note</label>
@@ -5113,7 +5122,7 @@ window.saisirNumero = async (numero, rue) => {
   modal.innerHTML = `
     <div class="modal-inner mn-modal">
       <h2>${h(adresse)}</h2>
-      ${existant ? `<p class="mn-existant">Déjà enregistré : <strong>${STATUT_PASSAGE_LABEL[existant.statut]}</strong>${existant.statut==='don'?` (${formatMontant(existant.montant)})`:''}</p>` : ''}
+      ${existant ? `<p class="mn-existant">Déjà enregistré : <strong>${STATUT_PASSAGE_LABEL[existant.statut]}</strong>${existant.statut==='don'?` (${formatMontant(existant.montant)})`:''}${sansReponseDefinitif(existant) ? ` — ${NB_PASSAGES_MAX} passages sans réponse : compté comme traité` : ''}</p>` : ''}
       ${fusion ? `<p class="mn-fusion">🔗 Regroupe : ${h([fusion.principale, ...(fusion.secondaires||[])].join(' + '))}
         <button class="mn-lien" onclick="mnAnnulerFusion(${ja(fusion.principale)})">séparer</button></p>` : ''}
       ${inhabitee ? `<p class="mn-inhab">🏚️ Marquée inhabitée — hors décompte

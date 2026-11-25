@@ -1561,6 +1561,9 @@ body {
 .rd-btn--sugg span { font-weight: 400; color: var(--ardoise-mid); }
 .rd-note { margin-top: 4px; color: var(--ardoise-mid); font-size: .76rem; }
 
+/* Relance au 3ᵉ passage : le foyer encore absent sera compté comme traité */
+.rl-dernier { margin: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--jaune-light); color: #78350F; font-size: .82rem; font-weight: 600; }
+
 /* Regrouper des adresses (« Même boîte que… ») : choix de la rue avec suggestions, puis des numéros */
 .fu-modal { max-height: 90vh; overflow-y: auto; }
 .fu-aide { margin: 0 0 var(--sp-3); font-size: .85rem; color: var(--ardoise-mid); }

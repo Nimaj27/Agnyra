@@ -680,6 +680,27 @@ jamais été appelée) : un secteur travaillé restait « Affecté » jusqu'au b
   équipier dans Chromium. **Non testé dans l'application déployée.** Le guide équipier décrit encore « Ma progression » comme la part des
   secteurs terminés : à mettre à jour.
 
+## Foyer absent : compté comme traité au 3ᵉ passage (25/11)
+
+Question de l'utilisateur : « au bout de combien de passages les boîtes absentes sont comptabilisées ? » — jusque-là **jamais** : un
+absent restait « à revoir » (non traité) quel que soit le nombre de relances. **Décision : 3 passages.**
+- Règle (`NB_PASSAGES_MAX = 3`, `sansReponseDefinitif(p)` dans `secteurs.js`) : un passage de statut `absent`/`relance` dont `nbPassages` ≥ 3
+  (1 à la saisie, +1 à chaque relance : le **3ᵉ passage** encore absent) compte comme **traité** (`nbFoyersVisites`, plus `nbFoyersAbsents`), donc
+  dans « boîtes traitées / restantes », l'avancement des équipes (v1.19) et les totaux du secteur. Avant le 3ᵉ passage rien ne change.
+- Appliquée aux **trois** calculs de totaux pour qu'ils ne se contredisent pas : `contributionPassage` (incréments atomiques),
+  `ecartsTotauxSecteurs` (réconciliation, via `contributionPassage`) et `recalculerTotauxSecteur` (réparation).
+- `modifierPassage` (`tournee.js`) force `statut:"absent"`, `aRelancer:false` dès que l'état résultant est un sans-réponse définitif :
+  quelle que soit la fenêtre (relance, correction ✏️, `marquerRelance`), le foyer sort des relances et **ne peut pas y être remis** ; il garde
+  le statut « Absent » dans la liste des passages. Un résultat ultérieur (don, offert, refus) le compte normalement, sans double compte.
+- Interface : au 3ᵉ passage la fenêtre « Résultat de la relance » remplace la case « Garder dans la liste des relances » par un avertissement
+  (`.rl-dernier`) et confirme par un toast ; la fenêtre de correction fait de même ; la fenêtre d'un numéro indique « 3 passages sans réponse :
+  compté comme traité ».
+- Limites : les passages déjà à 3 passages avant ce changement sont corrigés dans les **totaux** par la réconciliation du tableau de bord,
+  mais restent marqués « à relancer » jusqu'à leur prochaine modification ; la grille par rue (progression de la rue) et le compteur
+  « Absents / à relancer » des statistiques globales (statut `absent`) n'ont pas été modifiés. Le guide équipier décrit encore la relance sans cette règle.
+- Testé (Firestore simulé, 15 vérifications : 1ᵉʳ/2ᵉ/3ᵉ passage, sortie des relances, réconciliation et recalcul identiques, correction refusée,
+  don ensuite, suppression, refus au 3ᵉ passage, avancement) et fenêtre de relance dans Chromium. **Non testé dans l'application déployée.**
+
 ## Structure du code
 
 Build modulaire → fichier unique. Ne jamais éditer `index-monofichier.html`

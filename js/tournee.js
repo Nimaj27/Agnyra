@@ -1,6 +1,6 @@
 // tournee.js — Logique métier tournée calendriers
 import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsLot, fsGet, fsGetRapide, fsGetAll, fsGetAllOrg, fsQuery, fsQueryRapide, fsListen, fsListenOrg, organisationCourante, increment, isOnline, where, serverTimestamp } from "./firebase.js";
-import { recalculerTotauxSecteur, demarrerSecteurSiBesoin } from "./secteurs.js";
+import { recalculerTotauxSecteur, demarrerSecteurSiBesoin, sansReponseDefinitif } from "./secteurs.js";
 
 export const STATUT_PASSAGE = { DON:"don", OFFERT:"offert", REFUSE:"refuse", ABSENT:"absent", RELANCE:"relance" };
 export const STATUT_PASSAGE_LABEL = { don:"Don collecté", offert:"Calendrier offert", refuse:"A refusé", absent:"Absent", relance:"À relancer" };
@@ -119,10 +119,11 @@ export async function ajouterPassage({ secteurId, equipeId, equipeNom, adresse, 
 // recalculerTotauxSecteur (secteurs.js), qui sert de réparation.
 export function contributionPassage(p) {
   const s = p && p.statut;
+  const sansReponse = sansReponseDefinitif(p);          // absent après 3 passages : compté comme traité, plus relancé
   return {
     totalCollecte:   s === STATUT_PASSAGE.DON ? Number(p.montant || 0) : 0,
-    nbFoyersVisites: (s === STATUT_PASSAGE.DON || s === STATUT_PASSAGE.OFFERT || s === STATUT_PASSAGE.REFUSE) ? 1 : 0,
-    nbFoyersAbsents: (s === STATUT_PASSAGE.ABSENT || s === STATUT_PASSAGE.RELANCE) ? 1 : 0,
+    nbFoyersVisites: (s === STATUT_PASSAGE.DON || s === STATUT_PASSAGE.OFFERT || s === STATUT_PASSAGE.REFUSE || sansReponse) ? 1 : 0,
+    nbFoyersAbsents: ((s === STATUT_PASSAGE.ABSENT || s === STATUT_PASSAGE.RELANCE) && !sansReponse) ? 1 : 0,
     nbCalendriers:   (s === STATUT_PASSAGE.DON || s === STATUT_PASSAGE.OFFERT) ? 1 : 0,
     nbFoyersTotal:   p ? 1 : 0
   };
@@ -196,9 +197,12 @@ export async function verifierDoublonAdresse(secteurId, adresse) {
 // écrits dans le même lot atomique ; l'état précédent est lu dans le cache (déjà tenu à jour par les
 // écouteurs de l'équipier), sans attendre le serveur.
 export async function modifierPassage(passageId, data) {
-  const { secteurId: secteurIdFourni, ...champs } = data;
+  const { secteurId: secteurIdFourni, ...demandes } = data;
   const avant = await fsGetRapide(COLLECTIONS.PASSAGES, passageId).catch(() => null);
   const secteurId = (avant && avant.secteurId) || secteurIdFourni;
+  // Au 3ᵉ passage sans réponse (voir sansReponseDefinitif), le foyer reste « absent » mais sort des relances : quelle que
+  // soit la fenêtre qui modifie le passage, il ne peut plus être remis « à relancer ».
+  const champs = sansReponseDefinitif({ ...(avant || {}), ...demandes }) ? { ...demandes, statut: STATUT_PASSAGE.ABSENT, aRelancer: false } : demandes;
   if (!avant) {
     await fsUpdate(COLLECTIONS.PASSAGES, passageId, champs);
     if (secteurId) recalculerEnArrierePlan(secteurId);
