@@ -745,6 +745,7 @@ function parseCSV(text) {
 // Incrémenter le numéro mineur (x.Y) à chaque changement notable, le majeur
 // pour une refonte importante.
 const CHANGELOG = [
+  { version: "1.21", date: "2026-11-25", texte: "Un foyer encore absent au 3ème passage prend désormais son propre statut « Sans réponse » (gris) au lieu de rester « Absent ». Il est toujours compté comme traité et n'est plus relancé ; on le reconnaît dans la liste des passages, dans la grille de la rue (numéro gris, avec sa légende), dans les statistiques, le bilan de l'équipe et le PDF. Le compteur « traités / boîtes restantes » de la page d'un secteur tient aussi compte de cette règle." },
   { version: "1.20", date: "2026-11-25", texte: "Foyers absents : au 3ème passage, un foyer encore absent est désormais compté comme traité (boîtes traitées et restantes, avancement de l'équipe, totaux du secteur) et retiré de la liste des relances. Il garde le statut « Absent » dans les passages. Avant le 3ème passage, rien ne change : un foyer absent reste à revoir et n'est pas compté comme traité. La fenêtre de relance prévient au 3ème passage." },
   { version: "1.19", date: "2026-11-25", texte: "Progression des équipes : la barre et le palier (🔰 🥉 🥈 🥇 🏆) se calculent désormais sur les boîtes traitées (dons, offerts, refus) par rapport aux boîtes des secteurs de l'équipe, et non plus sur le nombre de secteurs clôturés. Une équipe qui n'a qu'un secteur avance donc avec sa tournée, au lieu de rester à 0 % puis de passer d'un coup à 100 %. Un secteur clôturé compte pour toutes ses boîtes, et la barre n'atteint 100 % que lorsque tout est traité. Les badges 🏁 Mission accomplie et 🔥 Série de 3 restent liés à la clôture des secteurs. Par ailleurs, un secteur passe maintenant automatiquement « En cours » à la première saisie (il restait « Affecté » jusqu'à sa clôture)." },
   { version: "1.18", date: "2026-11-25", texte: "« Même boîte que… » : les adresses regroupées se choisissent désormais dans une liste au lieu d'être tapées (la rue est proposée dès les premières lettres, les fautes de frappe sont tolérées, puis on touche les numéros), ce qui évite les fautes de nom de rue. Une maison d'angle dont les numéros sont dans deux rues de deux secteurs différents est regroupée dans les deux secteurs : elle n'est comptée et visitée qu'une fois. Enfin, le nombre de boîtes d'un secteur ne retranche plus que les adresses regroupées qui s'y trouvent réellement (une adresse d'un autre secteur ou mal écrite faisait perdre une boîte de trop)." },
@@ -1082,7 +1083,7 @@ async function renderDashboard() {
         <div class="stat-card">
           <div class="stat-value">${stats.nbPassages}</div>
           <div class="stat-label">Foyers visités</div>
-          <div class="stat-sub">🔁 ${stats.nbAbsents} absents${stats.horsSecteur?.nbCalendriers ? ` | 🧭 ${stats.horsSecteur.nbCalendriers} hors secteur (${formatMontant(stats.horsSecteur.montant)})` : ''}</div>
+          <div class="stat-sub">🔁 ${stats.nbAbsents} absents${stats.nbSansReponse ? ` | 🔕 ${stats.nbSansReponse} sans réponse` : ''}${stats.horsSecteur?.nbCalendriers ? ` | 🧭 ${stats.horsSecteur.nbCalendriers} hors secteur (${formatMontant(stats.horsSecteur.montant)})` : ''}</div>
         </div>
       </div>
 
@@ -2843,7 +2844,7 @@ async function renderStatistiques() {
       parSecteur[s.id] = {
         nom: s.nom, commune: s.commune,
         boites: nbBoitesReelles(s),
-        dons: 0, offerts: 0, refus: 0, absents: 0, montant: 0
+        dons: 0, offerts: 0, refus: 0, absents: 0, sansReponse: 0, montant: 0
       };
     }
     // Répartition horaire et par montant
@@ -2856,7 +2857,8 @@ async function renderStatistiques() {
         if (p.statut === "don")    { d.dons++;    d.montant += Number(p.montant || 0); }
         if (p.statut === "offert")   d.offerts++;
         if (p.statut === "refuse")   d.refus++;
-        if (p.statut === "absent" || p.statut === "relance") d.absents++;
+        if (p.statut === "absent" || p.statut === "relance" || p.statut === "sans_reponse") d.absents++;   // une absence, même sans réponse définitive
+        if (sansReponseDefinitif(p)) d.sansReponse++;
       }
       // Créneau horaire
       if (p.datePassage) {
@@ -2884,7 +2886,7 @@ async function renderStatistiques() {
           tauxRefus: visites > 0 ? (d.refus / visites) * 100 : 0,
           tauxAbsence: total > 0 ? (d.absents / total) * 100 : 0,
           donMoyen: d.dons > 0 ? d.montant / d.dons : 0,
-          avancement: d.boites > 0 ? (visites / d.boites) * 100 : null
+          avancement: d.boites > 0 ? ((visites + d.sansReponse) / d.boites) * 100 : null    // un foyer sans réponse après 3 passages est traité
         };
       })
       .sort((a, b) => b.montant - a.montant);
@@ -4316,6 +4318,8 @@ window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
   }
 
   const heure = heureLocale(p.datePassage);
+  // « Sans réponse » (3 passages) se corrige comme un absent : le bouton Absent est sélectionné, et il reprend ce statut à l'enregistrement
+  const statutAffiche = p.statut === 'sans_reponse' ? 'absent' : p.statut;
   modal.innerHTML = `
     <div class="modal-inner">
       <h2>Corriger le passage</h2>
@@ -4337,7 +4341,7 @@ window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
         <button class="statut-btn statut-btn--don ${p.statut === 'don' ? 'statut-btn--selected' : ''}" data-cp-statut="don" onclick="cpSelectStatut('don')"><span class="statut-btn-icon">💰</span><span>Don</span></button>
         <button class="statut-btn statut-btn--offert ${p.statut === 'offert' ? 'statut-btn--selected' : ''}" data-cp-statut="offert" onclick="cpSelectStatut('offert')"><span class="statut-btn-icon">🎁</span><span>Offert</span></button>
         <button class="statut-btn statut-btn--refuse ${p.statut === 'refuse' ? 'statut-btn--selected' : ''}" data-cp-statut="refuse" onclick="cpSelectStatut('refuse')"><span class="statut-btn-icon">🚫</span><span>Refus</span></button>
-        <button class="statut-btn statut-btn--absent ${(p.statut === 'absent' || p.statut === 'relance') ? 'statut-btn--selected' : ''}" data-cp-statut="absent" onclick="cpSelectStatut('absent')"><span class="statut-btn-icon">🔔</span><span>Absent</span></button>
+        <button class="statut-btn statut-btn--absent ${(statutAffiche === 'absent' || statutAffiche === 'relance') ? 'statut-btn--selected' : ''}" data-cp-statut="absent" onclick="cpSelectStatut('absent')"><span class="statut-btn-icon">🔔</span><span>Absent</span></button>
       </div>
 
       <div id="cp-don-details" class="don-details ${p.statut === 'don' ? '' : 'hidden'}">
@@ -4352,7 +4356,7 @@ window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
         <input id="cp-donateur" class="input" value="${h(p.nomDonateur || '')}" placeholder="Optionnel">
       </div>
 
-      <div id="cp-absent-details" class="absent-details ${(p.statut === 'absent' || p.statut === 'relance') ? '' : 'hidden'}">
+      <div id="cp-absent-details" class="absent-details ${(statutAffiche === 'absent' || statutAffiche === 'relance') ? '' : 'hidden'}">
         ${(estRelance ? (p.nbPassages || 1) + 1 : (p.nbPassages || 1)) >= NB_PASSAGES_MAX
           ? `<p class="rl-dernier">🔔 ${NB_PASSAGES_MAX} passages sans réponse : le foyer est compté comme traité et n'est plus relancé.</p>`
           : `<label class="checkbox-label">
@@ -4373,7 +4377,7 @@ window.corrigerPassage = async (passageId, secteurId, estRelance = false) => {
   modal.classList.remove("hidden");
 
   // État local de la correction
-  window._cpStatut = (p.statut === 'relance') ? 'absent' : p.statut;
+  window._cpStatut = (statutAffiche === 'relance') ? 'absent' : statutAffiche;
   window._cpMode   = p.modePaiement || 'especes';
 
   document.getElementById("cp-save")?.addEventListener("click", async () => {
@@ -4510,9 +4514,9 @@ function majStatsTerrain(secteur, passages) {
   const totalBoites = nbBoitesReelles(secteur);
   const aujourdhui = dateLocaleISO();
 
-  // Traités = dons + refus (les absents restent « à faire »)
-  const traites  = passages.filter(p => p.statut === "don" || p.statut === "offert" || p.statut === "refuse").length;
-  const absents  = passages.filter(p => p.statut === "absent" || p.statut === "relance").length;
+  // Traités = dons, offerts, refus et foyers sans réponse après 3 passages (les autres absents restent « à faire »)
+  const traites  = passages.filter(p => p.statut === "don" || p.statut === "offert" || p.statut === "refuse" || sansReponseDefinitif(p)).length;
+  const absents  = passages.filter(p => (p.statut === "absent" || p.statut === "relance") && !sansReponseDefinitif(p)).length;
   const restantes = totalBoites > 0 ? Math.max(0, totalBoites - traites) : null;
 
   // Totaux du jour (toutes équipes sur ce secteur)
@@ -4652,7 +4656,7 @@ window.afficherMonBilan = async () => {
     const dons     = passages.filter(p => p.statut === "don");
     const offerts  = passages.filter(p => p.statut === "offert");
     const refus    = passages.filter(p => p.statut === "refuse");
-    const absents  = passages.filter(p => p.statut === "absent" || p.statut === "relance");
+    const absents  = passages.filter(p => p.statut === "absent" || p.statut === "relance" || p.statut === "sans_reponse");
     const especes  = dons.filter(p => p.modePaiement === "especes").reduce((s,p) => s + Number(p.montant||0), 0);
     const cheques  = dons.filter(p => p.modePaiement === "cheque").reduce((s,p) => s + Number(p.montant||0), 0);
     const cartes   = dons.filter(p => p.modePaiement === "carte").reduce((s,p) => s + Number(p.montant||0), 0);
@@ -4669,7 +4673,7 @@ window.afficherMonBilan = async () => {
       if (p.statut === "don")    { d.dons++;    d.montant += Number(p.montant||0); }
       if (p.statut === "offert") d.offerts++;
       if (p.statut === "refuse") d.refus++;
-      if (p.statut === "absent" || p.statut === "relance") d.absents++;
+      if (p.statut === "absent" || p.statut === "relance" || p.statut === "sans_reponse") d.absents++;
       if (p.secteurId && secteurMap[p.secteurId]) d.secteurs.add(secteurMap[p.secteurId]);
     }
     const jours = Object.entries(parJour).sort((a,b) => b[0].localeCompare(a[0]));
@@ -4798,6 +4802,7 @@ const COULEURS_STATUT_NUM = {
   offert:  { bg: "#2563EB", label: "Offert" },
   refuse:  { bg: "#EF4444", label: "Refus" },
   absent:  { bg: "#EAB308", label: "Absent" },
+  sans_reponse: { bg: "#6B7280", label: "Sans réponse" },
   relance: { bg: "#F97316", label: "À relancer" }
 };
 
@@ -5122,7 +5127,7 @@ window.saisirNumero = async (numero, rue) => {
   modal.innerHTML = `
     <div class="modal-inner mn-modal">
       <h2>${h(adresse)}</h2>
-      ${existant ? `<p class="mn-existant">Déjà enregistré : <strong>${STATUT_PASSAGE_LABEL[existant.statut]}</strong>${existant.statut==='don'?` (${formatMontant(existant.montant)})`:''}${sansReponseDefinitif(existant) ? ` — ${NB_PASSAGES_MAX} passages sans réponse : compté comme traité` : ''}</p>` : ''}
+      ${existant ? `<p class="mn-existant">Déjà enregistré : <strong>${STATUT_PASSAGE_LABEL[existant.statut]}</strong>${existant.statut==='don'?` (${formatMontant(existant.montant)})`:''}${sansReponseDefinitif(existant) ? ` — compté comme traité après ${NB_PASSAGES_MAX} passages` : ''}</p>` : ''}
       ${fusion ? `<p class="mn-fusion">🔗 Regroupe : ${h([fusion.principale, ...(fusion.secondaires||[])].join(' + '))}
         <button class="mn-lien" onclick="mnAnnulerFusion(${ja(fusion.principale)})">séparer</button></p>` : ''}
       ${inhabitee ? `<p class="mn-inhab">🏚️ Marquée inhabitée — hors décompte

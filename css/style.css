@@ -134,6 +134,7 @@ body {
 .badge--don       { background: var(--vert-light); color: #14532D; }
 .badge--refuse    { background: var(--rouge-light); color: var(--rouge-dark); }
 .badge--absent    { background: var(--jaune-light); color: #92400E; }
+.badge--sans_reponse { background: #E5E7EB; color: #374151; }
 .badge--relance   { background: #FEF3C7; color: #92400E; }
 
 /* ── Page Login ──────────────────────────────────────────────── */
@@ -355,6 +356,7 @@ body {
 .tr--don td { border-left: 3px solid var(--vert); }
 .tr--refuse td { border-left: 3px solid var(--rouge); }
 .tr--absent td { border-left: 3px solid var(--jaune); }
+.tr--sans_reponse td { border-left: 3px solid #9CA3AF; }
 .td-actions { display: flex; gap: var(--sp-2); white-space: nowrap; }
 .pin-code { background: var(--gris-fond); padding: 2px 6px; border-radius: var(--r-sm); font-family: var(--font-mono); font-size: .9rem; }
 
@@ -563,6 +565,7 @@ body {
 .passage-item--don    .passage-statut-dot { background: var(--vert); }
 .passage-item--refuse .passage-statut-dot { background: var(--rouge); }
 .passage-item--absent .passage-statut-dot { background: var(--jaune); }
+.passage-item--sans_reponse .passage-statut-dot { background: #6B7280; }
 .passage-item--relance .passage-statut-dot { background: var(--orange); }
 .passage-statut-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .passage-info { flex: 1; min-width: 0; }

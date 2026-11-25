@@ -31,6 +31,7 @@ function resumer(p) {
   else if (p.statut === "offert") bouts.push("offert");
   else if (p.statut === "refuse") bouts.push("refus");
   else if (p.statut === "absent" || p.statut === "relance") bouts.push("absent");
+  else if (p.statut === "sans_reponse") bouts.push("sans réponse");
   if (p.modePaiement) bouts.push(p.modePaiement);
   return bouts.join(" · ");
 }

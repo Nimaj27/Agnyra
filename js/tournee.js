@@ -1,9 +1,9 @@
 // tournee.js — Logique métier tournée calendriers
 import { COLLECTIONS, ORGANISATION_ACTUELLE, fsAdd, fsSet, fsUpdate, fsDelete, fsLot, fsGet, fsGetRapide, fsGetAll, fsGetAllOrg, fsQuery, fsQueryRapide, fsListen, fsListenOrg, organisationCourante, increment, isOnline, where, serverTimestamp } from "./firebase.js";
-import { recalculerTotauxSecteur, demarrerSecteurSiBesoin, sansReponseDefinitif } from "./secteurs.js";
+import { recalculerTotauxSecteur, demarrerSecteurSiBesoin, sansReponseDefinitif, STATUT_SANS_REPONSE } from "./secteurs.js";
 
-export const STATUT_PASSAGE = { DON:"don", OFFERT:"offert", REFUSE:"refuse", ABSENT:"absent", RELANCE:"relance" };
-export const STATUT_PASSAGE_LABEL = { don:"Don collecté", offert:"Calendrier offert", refuse:"A refusé", absent:"Absent", relance:"À relancer" };
+export const STATUT_PASSAGE = { DON:"don", OFFERT:"offert", REFUSE:"refuse", ABSENT:"absent", RELANCE:"relance", SANS_REPONSE:STATUT_SANS_REPONSE };
+export const STATUT_PASSAGE_LABEL = { don:"Don collecté", offert:"Calendrier offert", refuse:"A refusé", absent:"Absent", relance:"À relancer", sans_reponse:"Sans réponse" };
 export const MODE_PAIEMENT = { ESPECES:"especes", CHEQUE:"cheque", CARTE:"carte" };
 
 export async function creerEquipe({ nom, membres=[], pin, organisationId=ORGANISATION_ACTUELLE }) {
@@ -200,9 +200,9 @@ export async function modifierPassage(passageId, data) {
   const { secteurId: secteurIdFourni, ...demandes } = data;
   const avant = await fsGetRapide(COLLECTIONS.PASSAGES, passageId).catch(() => null);
   const secteurId = (avant && avant.secteurId) || secteurIdFourni;
-  // Au 3ᵉ passage sans réponse (voir sansReponseDefinitif), le foyer reste « absent » mais sort des relances : quelle que
-  // soit la fenêtre qui modifie le passage, il ne peut plus être remis « à relancer ».
-  const champs = sansReponseDefinitif({ ...(avant || {}), ...demandes }) ? { ...demandes, statut: STATUT_PASSAGE.ABSENT, aRelancer: false } : demandes;
+  // Au 3ᵉ passage sans réponse (voir sansReponseDefinitif), le foyer prend le statut « Sans réponse » et sort des relances :
+  // quelle que soit la fenêtre qui modifie le passage, un absent à ce stade ne peut plus être remis « à relancer ».
+  const champs = sansReponseDefinitif({ ...(avant || {}), ...demandes }) ? { ...demandes, statut: STATUT_PASSAGE.SANS_REPONSE, aRelancer: false } : demandes;
   if (!avant) {
     await fsUpdate(COLLECTIONS.PASSAGES, passageId, champs);
     if (secteurId) recalculerEnArrierePlan(secteurId);
@@ -253,12 +253,13 @@ export async function statsGlobalesTournee() {
   const [passages, equipes, secteurs] = await Promise.all([
     fsGetAllOrg(COLLECTIONS.PASSAGES), fsGetAllOrg(COLLECTIONS.EQUIPES), fsGetAllOrg(COLLECTIONS.SECTEURS)
   ]);
-  let totalEspeces=0, totalCheques=0, totalCarte=0, nbDons=0, nbOfferts=0, nbRefus=0, nbAbsents=0, nbRelances=0;
+  let totalEspeces=0, totalCheques=0, totalCarte=0, nbDons=0, nbOfferts=0, nbRefus=0, nbAbsents=0, nbRelances=0, nbSansReponse=0;
   for (const p of passages) {
     if (p.statut==="don") { nbDons++; if(p.modePaiement==="especes") totalEspeces+=Number(p.montant||0); else if(p.modePaiement==="cheque") totalCheques+=Number(p.montant||0); else if(p.modePaiement==="carte") totalCarte+=Number(p.montant||0); }
     if (p.statut==="offert") nbOfferts++;
     if (p.statut==="refuse") nbRefus++;
-    if (p.statut==="absent") nbAbsents++;
+    if (p.statut==="absent" && !sansReponseDefinitif(p)) nbAbsents++;
+    if (sansReponseDefinitif(p)) nbSansReponse++;
     if (p.statut==="relance") nbRelances++;
   }
   const nbCalendriers = nbDons + nbOfferts;   // calendriers distribués au total
@@ -295,7 +296,7 @@ export async function statsGlobalesTournee() {
   const avancement = nbSecteursTotal>0 ? Math.round((nbSecteursTermines/nbSecteursTotal)*100) : 0;
   const ecartsTotaux = ecartsTotauxSecteurs(secteurs, passages);
   const aDemarrer = secteursADemarrer(secteurs, passages);
-  return { secteursADemarrer: aDemarrer, totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe, ecartsTotaux };
+  return { secteursADemarrer: aDemarrer, totalCollecte, totalEspeces, totalCheques, totalCarte, nbDons, nbOfferts, nbCalendriers, nbRefus, nbAbsents, nbRelances, nbSansReponse, nbPassages:passages.length - horsSect.length, horsSecteur, nbSecteursTermines, nbSecteursTotal, avancement, parEquipe, ecartsTotaux };
 }
 
 // ── Secteurs à passer « En cours » ───────────────────────────────

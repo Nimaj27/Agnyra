@@ -62,22 +62,26 @@ export function ecouterSecteursEquipe(equipeId, callback) {
   return fsListen(COLLECTIONS.SECTEURS, callback, where("equipeId", "==", equipeId));
 }
 // Un foyer absent n'est pas « traité » : il reste à revoir. Mais après NB_PASSAGES_MAX passages sans réponse, l'équipe a fait
-// ce qu'elle pouvait : le foyer compte comme traité (totaux, avancement) et n'est plus relancé. Le passage garde son statut
-// « absent » et son compteur de passages (nbPassages, 1 à la saisie puis +1 à chaque relance).
+// ce qu'elle pouvait : le foyer prend le statut « sans_reponse », compte comme traité (totaux, avancement) et n'est plus
+// relancé. nbPassages : 1 à la saisie puis +1 à chaque relance. Le prédicat reconnaît aussi les passages encore « absent » ou
+// « relance » qui ont déjà atteint ce nombre (saisis avant ce statut) : ils comptent pareil, sans migration.
 export const NB_PASSAGES_MAX = 3;
+export const STATUT_SANS_REPONSE = "sans_reponse";
 export function sansReponseDefinitif(p) {
-  return !!p && (p.statut === "absent" || p.statut === "relance") && (Number(p.nbPassages) || 1) >= NB_PASSAGES_MAX;
+  return !!p && (p.statut === STATUT_SANS_REPONSE
+    || ((p.statut === "absent" || p.statut === "relance") && (Number(p.nbPassages) || 1) >= NB_PASSAGES_MAX));
 }
 
 export async function recalculerTotauxSecteur(secteurId) {
   const passages = await fsQuery(COLLECTIONS.PASSAGES, where("secteurId", "==", secteurId));
   let totalCollecte=0, nbFoyersVisites=0, nbFoyersAbsents=0, nbCalendriers=0;
   for (const p of passages) {
-    // Boîtes "traitées" : don, offert et refus, et l'absent après NB_PASSAGES_MAX passages (sinon il reste à revoir)
+    // Boîtes "traitées" : don, offert et refus, et le foyer sans réponse après NB_PASSAGES_MAX passages (l'absent reste à revoir)
     if (p.statut==="don")    { totalCollecte += Number(p.montant||0); nbFoyersVisites++; nbCalendriers++; }
     if (p.statut==="offert") { nbFoyersVisites++; nbCalendriers++; }
     if (p.statut==="refuse") { nbFoyersVisites++; }
-    if (p.statut==="absent" || p.statut==="relance") { if (sansReponseDefinitif(p)) nbFoyersVisites++; else nbFoyersAbsents++; }
+    if (sansReponseDefinitif(p)) nbFoyersVisites++;
+    else if (p.statut==="absent" || p.statut==="relance") nbFoyersAbsents++;
   }
   const totaux = { totalCollecte, nbFoyersVisites, nbFoyersAbsents, nbCalendriers, nbFoyersTotal: passages.length };
   await fsUpdate(COLLECTIONS.SECTEURS, secteurId, totaux);

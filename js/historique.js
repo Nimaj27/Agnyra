@@ -187,6 +187,7 @@ export function resumeHistorique(entrees) {
     if (e.statut === "don")    return `${e.annee} : ${e.montant.toFixed(2).replace('.', ',')} €`;
     if (e.statut === "offert") return `${e.annee} : offert`;
     if (e.statut === "refuse") return `${e.annee} : refus`;
+    if (e.statut === "sans_reponse") return `${e.annee} : sans réponse`;
     return `${e.annee} : absent`;
   });
 }

@@ -92,6 +92,7 @@ export async function genererBilanPDF({ stats, secteurs, passages, logoBase64 = 
     ["Absents / a relancer", `${stats.nbAbsents} / ${stats.nbRelances}`],
     ["Secteurs termines", `${stats.nbSecteursTermines} / ${stats.nbSecteursTotal} (${stats.avancement}%)`]
   ];
+  if (stats.nbSansReponse) cles.push(["Sans reponse (3 passages)", String(stats.nbSansReponse)]);
   if (config.objectif) {
     const pctObj = Math.round((stats.totalCollecte / config.objectif) * 100);
     cles.push(["Objectif", `${fmtEuro(config.objectif)} (${pctObj}% atteint)`]);

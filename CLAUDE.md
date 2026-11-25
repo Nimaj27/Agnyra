@@ -680,26 +680,37 @@ jamais été appelée) : un secteur travaillé restait « Affecté » jusqu'au b
   équipier dans Chromium. **Non testé dans l'application déployée.** Le guide équipier décrit encore « Ma progression » comme la part des
   secteurs terminés : à mettre à jour.
 
-## Foyer absent : compté comme traité au 3ᵉ passage (25/11)
+## Foyer absent : compté comme traité au 3ᵉ passage, statut « Sans réponse » (25/11)
 
 Question de l'utilisateur : « au bout de combien de passages les boîtes absentes sont comptabilisées ? » — jusque-là **jamais** : un
-absent restait « à revoir » (non traité) quel que soit le nombre de relances. **Décision : 3 passages.**
-- Règle (`NB_PASSAGES_MAX = 3`, `sansReponseDefinitif(p)` dans `secteurs.js`) : un passage de statut `absent`/`relance` dont `nbPassages` ≥ 3
-  (1 à la saisie, +1 à chaque relance : le **3ᵉ passage** encore absent) compte comme **traité** (`nbFoyersVisites`, plus `nbFoyersAbsents`), donc
-  dans « boîtes traitées / restantes », l'avancement des équipes (v1.19) et les totaux du secteur. Avant le 3ᵉ passage rien ne change.
+absent restait « à revoir » (non traité) quel que soit le nombre de relances. **Décision : 3 passages**, puis (même jour) un **statut
+distinct « Sans réponse »** plutôt que de garder « Absent ».
+- Règle (`NB_PASSAGES_MAX = 3`, `STATUT_SANS_REPONSE = "sans_reponse"`, `sansReponseDefinitif(p)` dans `secteurs.js`) : un passage
+  `absent`/`relance` dont `nbPassages` ≥ 3 (1 à la saisie, +1 à chaque relance : le **3ᵉ passage** encore absent) passe au statut
+  **`sans_reponse`** et compte comme **traité** (`nbFoyersVisites`, plus `nbFoyersAbsents`), donc dans « boîtes traitées / restantes »,
+  l'avancement des équipes (v1.19) et les totaux du secteur. Avant le 3ᵉ passage rien ne change. Le prédicat reconnaît aussi les passages
+  encore `absent`/`relance` déjà à 3 passages (saisis avant ce statut) : ils comptent pareil, **sans migration** (le statut est réécrit à
+  leur prochaine modification).
 - Appliquée aux **trois** calculs de totaux pour qu'ils ne se contredisent pas : `contributionPassage` (incréments atomiques),
-  `ecartsTotauxSecteurs` (réconciliation, via `contributionPassage`) et `recalculerTotauxSecteur` (réparation).
-- `modifierPassage` (`tournee.js`) force `statut:"absent"`, `aRelancer:false` dès que l'état résultant est un sans-réponse définitif :
-  quelle que soit la fenêtre (relance, correction ✏️, `marquerRelance`), le foyer sort des relances et **ne peut pas y être remis** ; il garde
-  le statut « Absent » dans la liste des passages. Un résultat ultérieur (don, offert, refus) le compte normalement, sans double compte.
-- Interface : au 3ᵉ passage la fenêtre « Résultat de la relance » remplace la case « Garder dans la liste des relances » par un avertissement
-  (`.rl-dernier`) et confirme par un toast ; la fenêtre de correction fait de même ; la fenêtre d'un numéro indique « 3 passages sans réponse :
-  compté comme traité ».
-- Limites : les passages déjà à 3 passages avant ce changement sont corrigés dans les **totaux** par la réconciliation du tableau de bord,
-  mais restent marqués « à relancer » jusqu'à leur prochaine modification ; la grille par rue (progression de la rue) et le compteur
-  « Absents / à relancer » des statistiques globales (statut `absent`) n'ont pas été modifiés. Le guide équipier décrit encore la relance sans cette règle.
-- Testé (Firestore simulé, 15 vérifications : 1ᵉʳ/2ᵉ/3ᵉ passage, sortie des relances, réconciliation et recalcul identiques, correction refusée,
-  don ensuite, suppression, refus au 3ᵉ passage, avancement) et fenêtre de relance dans Chromium. **Non testé dans l'application déployée.**
+  `ecartsTotauxSecteurs` (réconciliation, via `contributionPassage`) et `recalculerTotauxSecteur` (réparation). Les compteurs calculés côté
+  client à partir des passages suivent la même règle : « traités / absents / boîtes restantes » de la page d'un secteur (un oubli de la
+  première version de la règle, corrigé) et l'avancement des statistiques par secteur.
+- `modifierPassage` (`tournee.js`) force `statut:"sans_reponse"`, `aRelancer:false` dès que l'état résultant est un sans-réponse définitif :
+  quelle que soit la fenêtre (relance, correction ✏️, `marquerRelance`), le foyer sort des relances et **un absent à ce stade ne peut pas y
+  être remis**. Un résultat ultérieur (don, offert, refus) le compte normalement, sans double compte ; la fenêtre de correction présente un
+  « sans réponse » comme un absent (bouton Absent sélectionné) et il reprend son statut à l'enregistrement.
+- Affichage : libellé « Sans réponse » (`STATUT_PASSAGE_LABEL`), badge/ligne/pastille **grise** (`.badge--sans_reponse`, `.tr--sans_reponse`,
+  `.passage-item--sans_reponse`), numéro gris `#6B7280` dans la grille de la rue (la légende l'affiche). Dans les **statistiques** et « Mon bilan »,
+  un foyer sans réponse reste compté comme une **absence** (c'est ce qu'il est : le taux d'absence reste juste) ; le tableau de bord (« 🔕 N sans
+  réponse », `stats.nbSansReponse`), le PDF du bilan, le journal et l'historique par adresse le nomment. `stats.nbAbsents` ne compte plus ces foyers.
+- Interface de relance : au 3ᵉ passage la fenêtre « Résultat de la relance » remplace la case « Garder dans la liste des relances » par un
+  avertissement (`.rl-dernier`) et confirme par un toast ; la fenêtre d'un numéro indique « compté comme traité après 3 passages ».
+- Limites : les passages déjà à 3 passages avant ce changement ont leurs **totaux** corrigés par la réconciliation du tableau de bord mais
+  restent marqués « à relancer » jusqu'à leur prochaine modification ; la progression d'une rue dans la grille de saisie compte tout passage
+  enregistré comme fait (comportement antérieur, inchangé). Le guide équipier décrit encore la relance sans cette règle.
+- Testé (Firestore simulé : 1ᵉʳ/2ᵉ/3ᵉ passage, sortie des relances, réconciliation et recalcul identiques, correction ramenée à « sans
+  réponse », don ensuite, suppression, refus au 3ᵉ passage, avancement, passages anciens non migrés, compteurs) et fenêtres de relance et de
+  secteur dans Chromium. **Non testé dans l'application déployée.**
 
 ## Structure du code
 
